@@ -1,44 +1,89 @@
 ---
 name: generate_image
-description: Generate images from text descriptions using FLUX.1 AI model on local RTX 4090
-user-invocable: true
-metadata: {"openclaw": {"emoji": "🎨", "requires": {"bins": ["curl"]}, "primaryEnv": "IMAGES_API_URL"}}
+description: Generate images from text prompts or edit existing images via a local image generation API backed by FLUX.1, SDXL, and automatic cloud fallback. Use when the user asks to create an image, make a quick visual concept, generate multiple images sequentially, or modify an existing image with img2img.
 ---
 
-# Генерация изображений
+# Generate Image
 
-Генерируй изображения по текстовому описанию через FLUX.1 AI на локальной RTX 4090. Автоматический фолбэк в облако при перегрузке GPU.
+Use the local image generation service exposed by `IMAGES_API_URL`.
 
-## Переменные окружения
+## Defaults
 
-- `IMAGES_API_URL` — базовый URL сервиса генерации (например `http://192.168.1.41:8189`)
+- Default model: `flux-dev`
+- Default size: `1024x1024`
+- Default FLUX steps: `20`
+- Default FLUX guidance scale: `3.5`
+- Default Schnell steps: `4`
+- Default SDXL steps: `25`
+- Default SDXL guidance scale: `7.0`
+- Default seed: `-1`
 
-## Доступные модели
+## Model selection
 
-| Модель | Параметр | Время | Назначение |
-|--------|----------|-------|------------|
-| FLUX.1 Dev | `flux-dev` | 9-16с | Основная: фотореализм, текст, анатомия |
-| FLUX.1 Schnell | `flux-schnell` | <1с | Быстрое прототипирование |
-| SDXL | `sdxl` | 6-13с | Стилизация, огромная экосистема LoRA |
+Choose the model based on the task:
 
-## Процесс
+- `flux-dev` — default; best for image quality, readable text inside images, and anatomy, especially hands
+- `flux-schnell` — use for very fast previews and rough prototyping
+- `sdxl` — use for stylized generations, SDXL ecosystems, or when `negative_prompt` matters
 
-### 1. Проверь доступность API
+Rules:
+
+- For FLUX models, do **not** send `negative_prompt`; FLUX ignores it
+- For FLUX models, control results with `prompt` and `guidance_scale`
+- For SDXL, `negative_prompt` is supported and useful
+- Generate multiple requested images sequentially, not in parallel
+- Check `${IMAGES_API_URL}/status` before submitting new work when service load is uncertain
+- Be mindful that the same GPU is shared with TRELLIS.2 / 3D generation; avoid creating concurrent load
+
+## Availability and queue check
+
+First check generator status:
 
 ```bash
-curl -sf "${IMAGES_API_URL}/health"
+curl -sf "${IMAGES_API_URL}/status"
 ```
 
-Если API недоступен или `comfyui_connected` = false, сообщи пользователю что сервис генерации сейчас недоступен.
+Interpret the response like this:
 
-### 2. Генерация изображения
+- `status=idle` — ready to accept a generation request now
+- `status=generating` — generation is already running, but the service can still accept another request
+- `status=busy` — queue is full; do not submit a new request yet
+- `status=offline` — generation backend is unavailable
+
+Examples:
+
+- `idle`:
+  - `ready: true`
+  - no active queue pressure
+- `generating`:
+  - `ready: true`
+  - one generation is already running, but another request is allowed
+- `busy`:
+  - `ready: false`
+  - queue is saturated; wait before retrying
+- `offline`:
+  - `ready: false`
+  - ComfyUI / GPU backend is unavailable
+
+Behavior rules:
+
+- If `status=idle`, proceed immediately
+- If `status=generating`, you may proceed, but be mindful that latency will be higher
+- If `status=busy`, wait and poll `/status` again before submitting
+- If `status=offline`, tell the user generation is currently unavailable
+
+You may still use `/health` as a low-level check when diagnosing service issues, but `/status` is the primary readiness endpoint for normal generation flow.
+
+## Text-to-image generation
+
+Use this request shape:
 
 ```bash
 curl -s -o /tmp/generated.png -w "%{http_code}" \
   -X POST "${IMAGES_API_URL}/generate" \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "описание изображения",
+    "prompt": "DESCRIPTION",
     "model": "flux-dev",
     "width": 1024,
     "height": 1024,
@@ -49,87 +94,128 @@ curl -s -o /tmp/generated.png -w "%{http_code}" \
   --max-time 300
 ```
 
-Параметры:
-- `prompt` (обязательный) — текстовое описание изображения
-- `model` — `flux-dev` (по умолчанию), `flux-schnell`, `sdxl`
-- `width`, `height` — размер 256-2048 (по умолчанию 1024x1024)
-- `steps` — шаги генерации (flux-dev: 20, flux-schnell: 4, sdxl: 25)
-- `guidance_scale` — сила следования промпту (flux-dev: 3.5, sdxl: 7.0)
-- `seed` — сид для воспроизводимости (-1 = случайный)
-- `negative_prompt` — что исключить (только для SDXL, FLUX игнорирует)
+Supported parameters:
 
-Ответ содержит PNG файл. Метаданные в заголовках: `X-Source`, `X-Seed`, `X-Model`.
+- `prompt` — required
+- `model` — `flux-dev`, `flux-schnell`, `sdxl`
+- `width`, `height` — 256..2048
+- `steps`
+- `guidance_scale`
+- `seed`
+- `negative_prompt` — SDXL only
 
-### 3. Обработка ошибок
+The response body is a PNG file. Useful metadata may be returned in headers such as `X-Source`, `X-Seed`, and `X-Model`.
 
-Если HTTP код = 503 (GPU занят или ComfyUI недоступен), подожди 15 секунд и повтори. Максимум 3 попытки:
+## Retry behavior
+
+Before each retry, prefer checking `/status` so you know whether the service is merely busy or actually offline.
+
+If generation returns `503`, retry up to 3 times with a 15 second pause.
+
+Use a pattern like this:
 
 ```bash
 for i in 1 2 3; do
-  HTTP_CODE=$(curl -s -o /tmp/generated.png -w "%{http_code}" \
-    -X POST "${IMAGES_API_URL}/generate" \
-    -H "Content-Type: application/json" \
-    -d '{"prompt": "описание", "model": "flux-dev"}' \
-    --max-time 300)
-  if [ "$HTTP_CODE" = "200" ]; then break; fi
-  if [ "$HTTP_CODE" = "503" ]; then
-    echo "GPU занят, жду 15 секунд... (попытка $i/3)"
+  STATUS_JSON=$(curl -sf "${IMAGES_API_URL}/status") || exit 1
+
+  if echo "$STATUS_JSON" | grep -q '"status":"offline"'; then
+    echo "Generation backend is offline"
+    exit 1
+  fi
+
+  if echo "$STATUS_JSON" | grep -q '"status":"busy"'; then
+    echo "GPU busy, waiting 15 seconds... ($i/3)"
     sleep 15
     continue
   fi
-  echo "Ошибка: HTTP $HTTP_CODE"
+
+  HTTP_CODE=$(curl -s -o /tmp/generated.png -w "%{http_code}" \
+    -X POST "${IMAGES_API_URL}/generate" \
+    -H "Content-Type: application/json" \
+    -d '{"prompt":"DESCRIPTION","model":"flux-dev"}' \
+    --max-time 300)
+
+  if [ "$HTTP_CODE" = "200" ]; then
+    break
+  fi
+
+  if [ "$HTTP_CODE" = "503" ]; then
+    echo "Generation not ready yet, waiting 15 seconds... ($i/3)"
+    sleep 15
+    continue
+  fi
+
+  echo "HTTP $HTTP_CODE"
   break
 done
 ```
 
-### 4. Image-to-Image (редактирование)
+Interpret `503` as one of:
 
-Для модификации существующего изображения используй отдельный endpoint:
+- local GPU overload
+- backend accepted the request but produced no image yet
+- ComfyUI unavailable
+- local generation busy because TRELLIS.2 / 3D generation is using the same GPU
+
+The service may automatically fall back to cloud generation (`fal.ai`) when the local GPU is overloaded. If fallback source is visible in headers or response metadata and it matters for privacy/cost, mention it to the user.
+
+## Image-to-image editing
+
+Use the img2img endpoint for modifying an existing image:
 
 ```bash
 curl -s -o /tmp/edited.png -w "%{http_code}" \
   -X POST "${IMAGES_API_URL}/generate/img2img" \
   -F "image=@/path/to/photo.png" \
-  -F "prompt=опиши желаемые изменения" \
+  -F "prompt=DESCRIBE THE CHANGES" \
   -F "model=flux-dev" \
   -F "denoise=0.65" \
   --max-time 300
 ```
 
-Параметр `denoise` (0.0-1.0) контролирует степень изменений:
-- 0.3-0.5 — лёгкие правки (цвет, стиль)
-- 0.5-0.7 — умеренные изменения (добавить/убрать элементы)
-- 0.7-0.9 — сильные изменения (почти полная перегенерация)
+Denoise guidance:
 
-### 5. Быстрая генерация
+- `0.3-0.5` — light edits
+- `0.5-0.7` — moderate changes
+- `0.7-0.9` — strong regeneration
 
-Для быстрых превью или прототипирования используй `flux-schnell` (менее 1 секунды):
+## Fast preview mode
+
+For very fast previews, use `flux-schnell`:
 
 ```bash
 curl -s -o /tmp/preview.png \
   -X POST "${IMAGES_API_URL}/generate" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "описание", "model": "flux-schnell", "steps": 4}'
+  -d '{"prompt":"DESCRIPTION","model":"flux-schnell","steps":4}'
 ```
 
-### 6. Проверка доступных моделей
+## Model discovery
+
+If you need to inspect available checkpoints or LoRAs:
 
 ```bash
 curl -sf "${IMAGES_API_URL}/models"
 ```
 
-Возвращает JSON со списком установленных чекпоинтов и LoRA.
+## Returning results
 
-### 7. Верни результат
+Before replying, verify that the output file exists and is not empty:
 
-- Проверь что файл создан и не пустой: `test -s /tmp/generated.png`
-- Сообщи пользователю что изображение готово и отправь его
-- Если пользователь просит несколько изображений — генерируй последовательно
+```bash
+test -s /tmp/generated.png
+```
 
-## Заметки
+or for img2img:
 
-- FLUX.1 Dev даёт лучшее качество текста на изображениях и анатомию (особенно руки)
-- Для FLUX моделей `negative_prompt` не используется — управление только через `prompt` и `guidance_scale`
-- Для SDXL `negative_prompt` работает и важен для качества
-- Сервис автоматически переключается на облачную генерацию (fal.ai) при перегрузке локального GPU
-- Нельзя запускать одновременно с 3D-генерацией (TRELLIS.2) под нагрузкой — GPU один
+```bash
+test -s /tmp/edited.png
+```
+
+Then:
+
+- tell the user the image is ready
+- send the generated image as an attachment/media result
+- if generation failed after retries, tell the user clearly what failed
+- if the user asked for multiple images, produce and return them one by one
+h
