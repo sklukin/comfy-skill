@@ -28,7 +28,8 @@ RUN git clone --depth 1 --branch ${COMFYUI_VERSION} \
 WORKDIR /app/ComfyUI
 
 # ComfyUI dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir requests
 
 # Model path configuration (maps volume-mounted dirs)
 COPY extra_model_paths.yaml /app/ComfyUI/
