@@ -1,0 +1,21 @@
+# Models (large files, download via `make download-models`)
+models/
+
+# Generated images
+output/
+
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

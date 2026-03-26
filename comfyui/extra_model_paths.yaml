@@ -1,0 +1,7 @@
+openclaw:
+  base_path: /app/models/
+  checkpoints: checkpoints/
+  vae: vae/
+  clip: text_encoders/
+  diffusion_models: diffusion_models/
+  loras: loras/

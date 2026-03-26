@@ -1,0 +1,52 @@
+services:
+  comfyui:
+    build:
+      context: ./comfyui
+      dockerfile: Dockerfile
+    container_name: openclaw-comfyui
+    restart: unless-stopped
+    ports:
+      - "8188:8188"
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/ComfyUI/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8188/system_stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: openclaw-images-api
+    restart: unless-stopped
+    ports:
+      - "8189:8000"
+    depends_on:
+      comfyui:
+        condition: service_healthy
+    environment:
+      - COMFYUI_URL=http://comfyui:8188
+      - FAL_KEY=${FAL_KEY:-}
+      - RUNPOD_API_KEY=${RUNPOD_API_KEY:-}
+      - RUNPOD_ENDPOINT_ID=${RUNPOD_ENDPOINT_ID:-}
+      - MAX_QUEUE_DEPTH=${MAX_QUEUE_DEPTH:-3}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
