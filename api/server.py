@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from cloud_router import CloudRouter
 from comfyui_client import ComfyUIClient
@@ -21,6 +22,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 logger = logging.getLogger("openclaw-images")
 
 VALID_MODELS = {"flux-dev", "flux-schnell", "sdxl"}
+
+
+class GenerateRequest(BaseModel):
+    prompt: str
+    width: int = Field(default=1024, ge=256, le=2048)
+    height: int = Field(default=1024, ge=256, le=2048)
+    model: str = "flux-dev"
+    steps: int = 20
+    guidance_scale: float = 3.5
+    seed: int = -1
+    negative_prompt: str = ""
 
 comfyui: ComfyUIClient | None = None
 router: CloudRouter | None = None
@@ -101,37 +113,26 @@ async def health():
 # ------------------------------------------------------------------
 
 @app.post("/generate")
-async def generate(
-    prompt: str,
-    width: int = 1024,
-    height: int = 1024,
-    model: str = "flux-dev",
-    steps: int = 20,
-    guidance_scale: float = 3.5,
-    seed: int = -1,
-    negative_prompt: str = "",
-):
-    if model not in VALID_MODELS:
+async def generate(req: GenerateRequest):
+    if req.model not in VALID_MODELS:
         raise HTTPException(400, f"model must be one of {VALID_MODELS}")
-    if width < 256 or width > 2048 or height < 256 or height > 2048:
-        raise HTTPException(400, "width and height must be between 256 and 2048")
 
     try:
         image_bytes, metadata = await router.generate(
-            prompt=prompt,
-            width=width,
-            height=height,
-            model=model,
-            steps=steps,
-            guidance_scale=guidance_scale,
-            seed=seed,
-            negative_prompt=negative_prompt,
+            prompt=req.prompt,
+            width=req.width,
+            height=req.height,
+            model=req.model,
+            steps=req.steps,
+            guidance_scale=req.guidance_scale,
+            seed=req.seed,
+            negative_prompt=req.negative_prompt,
         )
     except Exception as e:
         logger.error("Generation failed: %s", e)
         raise HTTPException(503, detail=str(e))
 
-    actual_seed = metadata.get("seed", seed)
+    actual_seed = metadata.get("seed", req.seed)
     source = metadata.get("source", "unknown")
 
     return StreamingResponse(
@@ -141,7 +142,7 @@ async def generate(
             "Content-Disposition": f'attachment; filename="openclaw_{actual_seed}.png"',
             "X-Source": source,
             "X-Seed": str(actual_seed),
-            "X-Model": model,
+            "X-Model": req.model,
         },
     )
 
