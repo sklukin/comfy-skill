@@ -21,7 +21,7 @@ from comfyui_client import ComfyUIClient
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("openclaw-images")
 
-VALID_MODELS = {"flux-dev", "flux-schnell", "sdxl"}
+VALID_MODELS = {"flux-dev", "flux-schnell"}
 
 
 class GenerateRequest(BaseModel):
@@ -65,6 +65,62 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="OpenClaw Images API", lifespan=lifespan)
+
+
+# ------------------------------------------------------------------
+# GET /status — agent-friendly service status
+# ------------------------------------------------------------------
+
+@app.get("/status")
+async def status():
+    """Human-readable status for OpenClaw agents."""
+    try:
+        stats = await comfyui.health()
+        queue = await comfyui.queue_status()
+    except Exception:
+        cloud = bool(router and (router.fal_key or router.runpod_api_key))
+        return {
+            "ready": cloud,
+            "status": "offline",
+            "message": "GPU-сервер недоступен." + (" Доступна облачная генерация." if cloud else " Генерация невозможна."),
+        }
+
+    running = len(queue.get("queue_running", []))
+    pending = len(queue.get("queue_pending", []))
+    total_queued = running + pending
+
+    devices = stats.get("devices", [])
+    vram_free_mb = 0
+    if devices:
+        vram_free_mb = int(devices[0].get("vram_free", 0) / (1024 * 1024))
+
+    max_queue = router.max_queue_depth if router else 3
+
+    if total_queued == 0:
+        state = "idle"
+        ready = True
+        message = "Готов к генерации."
+    elif total_queued < max_queue:
+        state = "generating"
+        ready = True
+        message = f"Генерация в процессе ({running} выполняется, {pending} в очереди). Можно отправить ещё запрос."
+    else:
+        cloud = bool(router and (router.fal_key or router.runpod_api_key))
+        state = "busy"
+        ready = cloud
+        message = f"GPU занят ({running} выполняется, {pending} в очереди)."
+        if cloud:
+            message += " Запрос будет отправлен в облако."
+        else:
+            message += " Подождите завершения текущей генерации."
+
+    return {
+        "ready": ready,
+        "status": state,
+        "message": message,
+        "queue": {"running": running, "pending": pending},
+        "vram_free_mb": vram_free_mb,
+    }
 
 
 # ------------------------------------------------------------------

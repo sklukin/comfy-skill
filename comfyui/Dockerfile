@@ -27,9 +27,11 @@ RUN git clone --depth 1 --branch ${COMFYUI_VERSION} \
 
 WORKDIR /app/ComfyUI
 
-# ComfyUI dependencies
+# ComfyUI dependencies (torchaudio removed — not needed for image generation,
+# and its native lib requires CUDA devel headers absent in runtime image)
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir requests
+    pip install --no-cache-dir requests && \
+    pip uninstall -y torchaudio 2>/dev/null || true
 
 # Model path configuration (maps volume-mounted dirs)
 COPY extra_model_paths.yaml /app/ComfyUI/
