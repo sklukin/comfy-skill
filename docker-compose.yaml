@@ -44,6 +44,7 @@ services:
       - RUNPOD_API_KEY=${RUNPOD_API_KEY:-}
       - RUNPOD_ENDPOINT_ID=${RUNPOD_ENDPOINT_ID:-}
       - MAX_QUEUE_DEPTH=${MAX_QUEUE_DEPTH:-3}
+      - IDLE_VRAM_FREE_TIMEOUT=${IDLE_VRAM_FREE_TIMEOUT:-300}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 15s

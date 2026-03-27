@@ -47,6 +47,18 @@ class ComfyUIClient:
         r.raise_for_status()
         return r.json()
 
+    async def free_memory(self, unload_models: bool = True, free_mem: bool = True) -> bool:
+        """POST /free — unload models and free VRAM."""
+        try:
+            r = await self._http.post("/free", json={
+                "unload_models": unload_models,
+                "free_memory": free_mem,
+            }, timeout=10.0)
+            r.raise_for_status()
+            return True
+        except Exception:
+            return False
+
     async def list_models(self, folder: str = "checkpoints") -> list[str]:
         """GET /models/{folder} — available model files."""
         r = await self._http.get(f"/models/{folder}", timeout=10.0)

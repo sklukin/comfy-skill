@@ -64,7 +64,11 @@ async def lifespan(app: FastAPI):
         runpod_endpoint_id=runpod_endpoint,
     )
 
-    job_queue = JobQueue(router=router, max_jobs=max_jobs, result_ttl=result_ttl)
+    idle_timeout = float(os.environ.get("IDLE_VRAM_FREE_TIMEOUT", "300"))
+    job_queue = JobQueue(
+        router=router, comfyui=comfyui, max_jobs=max_jobs,
+        result_ttl=result_ttl, idle_vram_timeout=idle_timeout,
+    )
     router._gpu_paused_check = lambda: job_queue.gpu_paused
     await job_queue.start()
 
@@ -337,10 +341,12 @@ async def upload_image(image: UploadFile = File(...)):
 @app.post("/gpu/pause")
 async def gpu_pause():
     job_queue.set_gpu_paused(True)
+    freed = await job_queue.free_vram()
     qi = job_queue.queue_info()
     return {
         "gpu_paused": True,
-        "message": "GPU на паузе. Задачи в очереди будут ждать.",
+        "vram_freed": freed,
+        "message": "GPU на паузе. VRAM освобождён." if freed else "GPU на паузе. Задачи в очереди будут ждать.",
         "queued_jobs": qi["total_queued"],
     }
 

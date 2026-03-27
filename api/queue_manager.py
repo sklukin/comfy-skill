@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from cloud_router import CloudRouter
+    from comfyui_client import ComfyUIClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +35,25 @@ class JobQueue:
     def __init__(
         self,
         router: CloudRouter,
+        comfyui: ComfyUIClient | None = None,
         max_jobs: int = 50,
         result_ttl: float = 600.0,
+        idle_vram_timeout: float = 300.0,
     ):
         self._router = router
+        self._comfyui = comfyui
         self._max_jobs = max_jobs
         self._result_ttl = result_ttl
+        self._idle_vram_timeout = idle_vram_timeout
 
         self._queue: deque[str] = deque()  # job IDs in order
         self._jobs: dict[str, Job] = {}
         self._gpu_paused = False
         self._wake = asyncio.Event()
         self._worker_task: asyncio.Task | None = None
+        self._idle_timer_task: asyncio.Task | None = None
+        self._last_job_completed_at: float | None = None
+        self._vram_freed = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -52,15 +61,18 @@ class JobQueue:
 
     async def start(self):
         self._worker_task = asyncio.create_task(self._worker_loop())
-        logger.info("Job queue worker started")
+        if self._comfyui and self._idle_vram_timeout > 0:
+            self._idle_timer_task = asyncio.create_task(self._idle_timer_loop())
+        logger.info("Job queue worker started (idle VRAM timeout: %.0fs)", self._idle_vram_timeout)
 
     async def stop(self):
-        if self._worker_task:
-            self._worker_task.cancel()
-            try:
-                await self._worker_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._worker_task, self._idle_timer_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         logger.info("Job queue worker stopped")
 
     # ------------------------------------------------------------------
@@ -73,6 +85,7 @@ class JobQueue:
             if len(self._jobs) >= self._max_jobs:
                 raise RuntimeError("Job queue is full")
 
+        self._vram_freed = False
         job = Job(id=uuid.uuid4().hex, status="queued", request=request)
         self._jobs[job.id] = job
         self._queue.append(job.id)
@@ -129,6 +142,16 @@ class JobQueue:
             "gpu_paused": self._gpu_paused,
         }
 
+    async def free_vram(self) -> bool:
+        """Immediately free VRAM by unloading models."""
+        if self._comfyui:
+            ok = await self._comfyui.free_memory()
+            if ok:
+                self._vram_freed = True
+                logger.info("VRAM freed (manual)")
+            return ok
+        return False
+
     # ------------------------------------------------------------------
     # Background worker
     # ------------------------------------------------------------------
@@ -173,6 +196,7 @@ class JobQueue:
                         logger.error("Job %s failed: %s", job_id[:8], e)
                     finally:
                         job.completed_at = datetime.now(timezone.utc).isoformat()
+                        self._last_job_completed_at = time.monotonic()
 
                     self._cleanup()
 
@@ -181,6 +205,31 @@ class JobQueue:
             except Exception:
                 logger.exception("Worker loop error")
                 await asyncio.sleep(1.0)
+
+    # ------------------------------------------------------------------
+    # Idle VRAM timer
+    # ------------------------------------------------------------------
+
+    async def _idle_timer_loop(self):
+        """Periodically check if GPU is idle and free VRAM after timeout."""
+        while True:
+            try:
+                await asyncio.sleep(30.0)
+                if self._vram_freed or self._gpu_paused:
+                    continue
+                if not self._last_job_completed_at:
+                    continue
+                if self._queue or any(j.status == "processing" for j in self._jobs.values()):
+                    continue
+                elapsed = time.monotonic() - self._last_job_completed_at
+                if elapsed >= self._idle_vram_timeout:
+                    logger.info("Idle %.0fs — freeing VRAM", elapsed)
+                    if await self._comfyui.free_memory():
+                        self._vram_freed = True
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Idle timer error")
 
     # ------------------------------------------------------------------
     # Cleanup
