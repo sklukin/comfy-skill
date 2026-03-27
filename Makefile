@@ -6,6 +6,7 @@ HF_FLUX_DEV    := https://huggingface.co/Comfy-Org/flux1-dev/resolve/main
 HF_FLUX_SCHNELL := https://huggingface.co/Comfy-Org/flux1-schnell/resolve/main
 HF_TEXT_ENC    := https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main
 HF_VAE        := https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main
+HF_SDXL       := https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main
 
 HF_DL := wget -q --show-progress -c
 HF_DL_AUTH := $(HF_DL) --header="Authorization: Bearer $(HF_TOKEN)"
@@ -15,7 +16,7 @@ HF_DL_AUTH := $(HF_DL) --header="Authorization: Bearer $(HF_TOKEN)"
 
 # === Model Downloads ===
 
-download-models: download-models-flux-dev download-models-flux-schnell download-models-encoders
+download-models: download-models-flux-dev download-models-flux-schnell download-models-sdxl download-models-encoders
 	@echo "All models downloaded to $(MODEL_DIR)"
 
 download-models-flux-dev:
@@ -36,6 +37,16 @@ download-models-flux-schnell:
 		echo "downloading flux1-schnell-fp8.safetensors (~12GB)..."; \
 		$(HF_DL) -O "$(MODEL_DIR)/checkpoints/flux1-schnell-fp8.safetensors" \
 			"$(HF_FLUX_SCHNELL)/flux1-schnell-fp8.safetensors" || exit 1; \
+	fi
+
+download-models-sdxl:
+	@mkdir -p $(MODEL_DIR)/checkpoints
+	@if [ -f "$(MODEL_DIR)/checkpoints/sd_xl_base_1.0.safetensors" ]; then \
+		echo "skip sd_xl_base_1.0.safetensors (exists)"; \
+	else \
+		echo "downloading sd_xl_base_1.0.safetensors (~6.9GB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/checkpoints/sd_xl_base_1.0.safetensors" \
+			"$(HF_SDXL)/sd_xl_base_1.0.safetensors" || exit 1; \
 	fi
 
 download-models-encoders:

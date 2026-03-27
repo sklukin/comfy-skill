@@ -21,6 +21,7 @@ WORKFLOW_MAP = {
     "flux-dev": "flux_dev_txt2img.json",
     "flux-schnell": "flux_schnell_txt2img.json",
     "flux-dev-img2img": "flux_dev_img2img.json",
+    "sdxl": "sdxl_txt2img.json",
 }
 
 

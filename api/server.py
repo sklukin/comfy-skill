@@ -23,7 +23,7 @@ from queue_manager import JobQueue
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("openclaw-images")
 
-VALID_MODELS = {"flux-dev", "flux-schnell"}
+VALID_MODELS = {"flux-dev", "flux-schnell", "sdxl"}
 
 comfyui: ComfyUIClient | None = None
 router: CloudRouter | None = None
