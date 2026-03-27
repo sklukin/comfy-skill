@@ -52,7 +52,7 @@ class JobQueue:
         self._wake = asyncio.Event()
         self._worker_task: asyncio.Task | None = None
         self._idle_timer_task: asyncio.Task | None = None
-        self._last_job_completed_at: float | None = None
+        self._last_activity_at: float = time.monotonic()
         self._vram_freed = False
 
     # ------------------------------------------------------------------
@@ -196,7 +196,7 @@ class JobQueue:
                         logger.error("Job %s failed: %s", job_id[:8], e)
                     finally:
                         job.completed_at = datetime.now(timezone.utc).isoformat()
-                        self._last_job_completed_at = time.monotonic()
+                        self._last_activity_at = time.monotonic()
 
                     self._cleanup()
 
@@ -217,11 +217,9 @@ class JobQueue:
                 await asyncio.sleep(30.0)
                 if self._vram_freed or self._gpu_paused:
                     continue
-                if not self._last_job_completed_at:
-                    continue
                 if self._queue or any(j.status == "processing" for j in self._jobs.values()):
                     continue
-                elapsed = time.monotonic() - self._last_job_completed_at
+                elapsed = time.monotonic() - self._last_activity_at
                 if elapsed >= self._idle_vram_timeout:
                     logger.info("Idle %.0fs — freeing VRAM", elapsed)
                     if await self._comfyui.free_memory():
