@@ -14,8 +14,6 @@ Use the local image generation service exposed by `IMAGES_API_URL`.
 - Default FLUX steps: `20`
 - Default FLUX guidance scale: `3.5`
 - Default Schnell steps: `4`
-- Default SDXL steps: `25`
-- Default SDXL guidance scale: `7.0`
 - Default seed: `-1`
 
 ## Model selection
@@ -24,63 +22,45 @@ Choose the model based on the task:
 
 - `flux-dev` — default; best for image quality, readable text inside images, and anatomy, especially hands
 - `flux-schnell` — use for very fast previews and rough prototyping
-- `sdxl` — use for stylized generations, SDXL ecosystems, or when `negative_prompt` matters
 
 Rules:
 
 - For FLUX models, do **not** send `negative_prompt`; FLUX ignores it
 - For FLUX models, control results with `prompt` and `guidance_scale`
-- For SDXL, `negative_prompt` is supported and useful
 - Generate multiple requested images sequentially, not in parallel
-- Check `${IMAGES_API_URL}/status` before submitting new work when service load is uncertain
-- Be mindful that the same GPU is shared with TRELLIS.2 / 3D generation; avoid creating concurrent load
+- Be mindful that the same GPU is shared with other services; avoid creating concurrent load
 
-## Availability and queue check
+## Availability check
 
-First check generator status:
+Check generator status before submitting work:
 
 ```bash
 curl -sf "${IMAGES_API_URL}/status"
 ```
 
-Interpret the response like this:
+Status values:
 
-- `status=idle` — ready to accept a generation request now
-- `status=generating` — generation is already running, but the service can still accept another request
-- `status=busy` — queue is full; do not submit a new request yet
-- `status=offline` — generation backend is unavailable
+| status | ready | What to do |
+|--------|-------|------------|
+| `idle` | true | Proceed immediately |
+| `generating` | true | Can proceed, but latency will be higher |
+| `busy` | varies | Wait before retrying |
+| `paused` | false | GPU unavailable (user is gaming). Do NOT submit jobs. Tell the user generation is paused. |
+| `offline` | false | Backend is down. Tell the user generation is unavailable. |
 
-Examples:
+The response also includes:
 
-- `idle`:
-  - `ready: true`
-  - no active queue pressure
-- `generating`:
-  - `ready: true`
-  - one generation is already running, but another request is allowed
-- `busy`:
-  - `ready: false`
-  - queue is saturated; wait before retrying
-- `offline`:
-  - `ready: false`
-  - ComfyUI / GPU backend is unavailable
-
-Behavior rules:
-
-- If `status=idle`, proceed immediately
-- If `status=generating`, you may proceed, but be mindful that latency will be higher
-- If `status=busy`, wait and poll `/status` again before submitting
-- If `status=offline`, tell the user generation is currently unavailable
-
-You may still use `/health` as a low-level check when diagnosing service issues, but `/status` is the primary readiness endpoint for normal generation flow.
+- `gpu_paused` — `true` if gaming mode is active
+- `jobs` — `{total_queued, processing, gpu_paused}` — queue state
 
 ## Text-to-image generation
 
-Use this request shape:
+Generation uses an async job queue. Submit a job, poll for completion, download the result.
+
+### Step 1: Submit job
 
 ```bash
-curl -s -o /tmp/generated.png -w "%{http_code}" \
-  -X POST "${IMAGES_API_URL}/generate" \
+JOB=$(curl -sf -X POST "${IMAGES_API_URL}/jobs" \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "DESCRIPTION",
@@ -90,88 +70,81 @@ curl -s -o /tmp/generated.png -w "%{http_code}" \
     "steps": 20,
     "guidance_scale": 3.5,
     "seed": -1
-  }' \
-  --max-time 300
+  }')
+JOB_ID=$(echo "$JOB" | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+echo "Job submitted: $JOB_ID"
 ```
 
 Supported parameters:
 
 - `prompt` — required
-- `model` — `flux-dev`, `flux-schnell`, `sdxl`
+- `model` — `flux-dev`, `flux-schnell`
 - `width`, `height` — 256..2048
 - `steps`
 - `guidance_scale`
 - `seed`
-- `negative_prompt` — SDXL only
+- `negative_prompt` — ignored by FLUX
 
-The response body is a PNG file. Useful metadata may be returned in headers such as `X-Source`, `X-Seed`, and `X-Model`.
+Response:
 
-## Retry behavior
+```json
+{"job_id": "abc123...", "status": "queued", "position": 1, "created_at": "..."}
+```
 
-Before each retry, prefer checking `/status` so you know whether the service is merely busy or actually offline.
-
-If generation returns `503`, retry up to 3 times with a 15 second pause.
-
-Use a pattern like this:
+### Step 2: Poll for completion
 
 ```bash
-for i in 1 2 3; do
-  STATUS_JSON=$(curl -sf "${IMAGES_API_URL}/status") || exit 1
-
-  if echo "$STATUS_JSON" | grep -q '"status":"offline"'; then
-    echo "Generation backend is offline"
-    exit 1
-  fi
-
-  if echo "$STATUS_JSON" | grep -q '"status":"busy"'; then
-    echo "GPU busy, waiting 15 seconds... ($i/3)"
-    sleep 15
-    continue
-  fi
-
-  HTTP_CODE=$(curl -s -o /tmp/generated.png -w "%{http_code}" \
-    -X POST "${IMAGES_API_URL}/generate" \
-    -H "Content-Type: application/json" \
-    -d '{"prompt":"DESCRIPTION","model":"flux-dev"}' \
-    --max-time 300)
-
-  if [ "$HTTP_CODE" = "200" ]; then
-    break
-  fi
-
-  if [ "$HTTP_CODE" = "503" ]; then
-    echo "Generation not ready yet, waiting 15 seconds... ($i/3)"
-    sleep 15
-    continue
-  fi
-
-  echo "HTTP $HTTP_CODE"
-  break
+while true; do
+  R=$(curl -sf "${IMAGES_API_URL}/jobs/${JOB_ID}")
+  S=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+  case "$S" in
+    completed) echo "Done"; break ;;
+    failed) echo "Job failed: $(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))")"; exit 1 ;;
+    cancelled) echo "Job cancelled"; exit 1 ;;
+    *) echo "Status: $S, waiting..."; sleep 5 ;;
+  esac
 done
 ```
 
-Interpret `503` as one of:
+Job statuses: `queued` → `processing` → `completed` / `failed` / `cancelled`
 
-- local GPU overload
-- backend accepted the request but produced no image yet
-- ComfyUI unavailable
-- local generation busy because TRELLIS.2 / 3D generation is using the same GPU
+### Step 3: Download result
 
-The service may automatically fall back to cloud generation (`fal.ai`) when the local GPU is overloaded. If fallback source is visible in headers or response metadata and it matters for privacy/cost, mention it to the user.
+```bash
+curl -sf "${IMAGES_API_URL}/jobs/${JOB_ID}/result" -o /tmp/generated.png
+```
+
+Returns PNG with headers `X-Source`, `X-Seed`, `X-Model`.
+
+If the job is not yet complete, this returns HTTP 202 with JSON status.
 
 ## Image-to-image editing
 
-Use the img2img endpoint for modifying an existing image:
+Two-step process: upload the source image, then submit a job referencing it.
+
+### Step 1: Upload image
 
 ```bash
-curl -s -o /tmp/edited.png -w "%{http_code}" \
-  -X POST "${IMAGES_API_URL}/generate/img2img" \
-  -F "image=@/path/to/photo.png" \
-  -F "prompt=DESCRIBE THE CHANGES" \
-  -F "model=flux-dev" \
-  -F "denoise=0.65" \
-  --max-time 300
+UPLOAD=$(curl -sf -X POST "${IMAGES_API_URL}/upload" \
+  -F "image=@/path/to/photo.png")
+FILENAME=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['filename'])")
 ```
+
+### Step 2: Submit img2img job
+
+```bash
+JOB=$(curl -sf -X POST "${IMAGES_API_URL}/jobs" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"prompt\": \"DESCRIBE THE CHANGES\",
+    \"model\": \"flux-dev\",
+    \"input_image\": \"${FILENAME}\",
+    \"denoise\": 0.65
+  }")
+JOB_ID=$(echo "$JOB" | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+```
+
+Then poll and download as described above.
 
 Denoise guidance:
 
@@ -181,14 +154,33 @@ Denoise guidance:
 
 ## Fast preview mode
 
-For very fast previews, use `flux-schnell`:
+For very fast previews, use `flux-schnell` with 4 steps:
 
 ```bash
-curl -s -o /tmp/preview.png \
-  -X POST "${IMAGES_API_URL}/generate" \
+JOB=$(curl -sf -X POST "${IMAGES_API_URL}/jobs" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"DESCRIPTION","model":"flux-schnell","steps":4}'
+  -d '{"prompt":"DESCRIPTION","model":"flux-schnell","steps":4}')
 ```
+
+## Cancelling a job
+
+If you need to cancel a queued job:
+
+```bash
+curl -sf -X DELETE "${IMAGES_API_URL}/jobs/${JOB_ID}"
+```
+
+Only works for jobs in `queued` status.
+
+## Retry behavior
+
+If `/status` shows `paused` — do NOT retry. Tell the user GPU is paused for gaming.
+
+If `/status` shows `offline` — do NOT retry. Tell the user generation is unavailable.
+
+If `/status` shows `busy` — you can still submit jobs; they will queue and process when GPU is free.
+
+If job submission returns `429` — queue is full. Wait 30 seconds and retry.
 
 ## Model discovery
 
@@ -206,16 +198,9 @@ Before replying, verify that the output file exists and is not empty:
 test -s /tmp/generated.png
 ```
 
-or for img2img:
-
-```bash
-test -s /tmp/edited.png
-```
-
 Then:
 
 - tell the user the image is ready
 - send the generated image as an attachment/media result
 - if generation failed after retries, tell the user clearly what failed
 - if the user asked for multiple images, produce and return them one by one
-h

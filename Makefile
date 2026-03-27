@@ -11,7 +11,7 @@ HF_DL := wget -q --show-progress -c
 HF_DL_AUTH := $(HF_DL) --header="Authorization: Bearer $(HF_TOKEN)"
 
 .PHONY: download-models download-models-flux-dev download-models-flux-schnell \
-        download-models-encoders build up down logs health test
+        download-models-encoders build up down logs health test gaming resume queue
 
 # === Model Downloads ===
 
@@ -85,3 +85,17 @@ health:
 
 test:
 	cd api && python -m pytest tests/ -v
+
+# === GPU Control ===
+
+gaming:
+	@echo "Pausing GPU for gaming..." && \
+	curl -sf -X POST http://localhost:8189/gpu/pause | python3 -m json.tool
+
+resume:
+	@echo "Resuming GPU..." && \
+	curl -sf -X POST http://localhost:8189/gpu/resume | python3 -m json.tool
+
+queue:
+	@echo "=== Job Queue ===" && \
+	curl -sf http://localhost:8189/status | python3 -m json.tool

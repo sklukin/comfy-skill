@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir \
     "fastapi>=0.115" "uvicorn>=0.30" "python-multipart>=0.0.9" \
     "httpx>=0.27" "websockets>=13" "Pillow>=10" "fal-client>=0.5"
 
-COPY server.py comfyui_client.py cloud_router.py ./
+COPY server.py comfyui_client.py cloud_router.py queue_manager.py ./
 COPY workflows/ ./workflows/
 
 EXPOSE 8000

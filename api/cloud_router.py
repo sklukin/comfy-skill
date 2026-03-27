@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -20,12 +21,14 @@ class CloudRouter:
         fal_key: str | None = None,
         runpod_api_key: str | None = None,
         runpod_endpoint_id: str | None = None,
+        gpu_paused_check: Callable[[], bool] | None = None,
     ):
         self.comfyui = comfyui
         self.max_queue_depth = max_queue_depth
         self.fal_key = fal_key
         self.runpod_api_key = runpod_api_key
         self.runpod_endpoint_id = runpod_endpoint_id
+        self._gpu_paused_check = gpu_paused_check
         self._http = httpx.AsyncClient(timeout=120.0)
 
     # ------------------------------------------------------------------
@@ -34,6 +37,9 @@ class CloudRouter:
 
     async def is_local_healthy(self) -> bool:
         """Check if ComfyUI is reachable, queue not saturated, GPU has free VRAM."""
+        if self._gpu_paused_check and self._gpu_paused_check():
+            logger.info("GPU paused (gaming mode), local unavailable")
+            return False
         try:
             stats = await self.comfyui.health()
             queue = await self.comfyui.queue_status()

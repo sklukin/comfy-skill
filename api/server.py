@@ -1,6 +1,7 @@
 """OpenClaw Images — REST API for AI image generation.
 
 Uses ComfyUI (local RTX 4090) with cloud fallback (fal.ai / RunPod).
+All generation goes through an async job queue.
 """
 
 from __future__ import annotations
@@ -11,20 +12,25 @@ import os
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from cloud_router import CloudRouter
 from comfyui_client import ComfyUIClient
+from queue_manager import JobQueue
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("openclaw-images")
 
 VALID_MODELS = {"flux-dev", "flux-schnell"}
 
+comfyui: ComfyUIClient | None = None
+router: CloudRouter | None = None
+job_queue: JobQueue | None = None
 
-class GenerateRequest(BaseModel):
+
+class JobRequest(BaseModel):
     prompt: str
     width: int = Field(default=1024, ge=256, le=2048)
     height: int = Field(default=1024, ge=256, le=2048)
@@ -33,20 +39,21 @@ class GenerateRequest(BaseModel):
     guidance_scale: float = 3.5
     seed: int = -1
     negative_prompt: str = ""
-
-comfyui: ComfyUIClient | None = None
-router: CloudRouter | None = None
+    input_image: str | None = None
+    denoise: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global comfyui, router
+    global comfyui, router, job_queue
 
     comfyui_url = os.environ.get("COMFYUI_URL", "http://localhost:8188")
     max_queue = int(os.environ.get("MAX_QUEUE_DEPTH", "3"))
     fal_key = os.environ.get("FAL_KEY") or None
     runpod_key = os.environ.get("RUNPOD_API_KEY") or None
     runpod_endpoint = os.environ.get("RUNPOD_ENDPOINT_ID") or None
+    max_jobs = int(os.environ.get("MAX_QUEUE_JOBS", "50"))
+    result_ttl = float(os.environ.get("JOB_RESULT_TTL", "600"))
 
     comfyui = ComfyUIClient(comfyui_url)
     router = CloudRouter(
@@ -57,9 +64,14 @@ async def lifespan(app: FastAPI):
         runpod_endpoint_id=runpod_endpoint,
     )
 
+    job_queue = JobQueue(router=router, max_jobs=max_jobs, result_ttl=result_ttl)
+    router._gpu_paused_check = lambda: job_queue.gpu_paused
+    await job_queue.start()
+
     logger.info("ComfyUI: %s | Cloud: fal=%s runpod=%s", comfyui_url, bool(fal_key), bool(runpod_key))
     yield
 
+    await job_queue.stop()
     await router.close()
     await comfyui.close()
 
@@ -74,15 +86,30 @@ app = FastAPI(title="OpenClaw Images API", lifespan=lifespan)
 @app.get("/status")
 async def status():
     """Human-readable status for OpenClaw agents."""
+    # GPU paused — override everything
+    if job_queue and job_queue.gpu_paused:
+        cloud = bool(router and (router.fal_key or router.runpod_api_key))
+        qi = job_queue.queue_info()
+        return {
+            "ready": cloud,
+            "status": "paused",
+            "message": "GPU на паузе (gaming mode)." + (" Облачная генерация доступна." if cloud else ""),
+            "gpu_paused": True,
+            "jobs": qi,
+        }
+
     try:
         stats = await comfyui.health()
         queue = await comfyui.queue_status()
     except Exception:
         cloud = bool(router and (router.fal_key or router.runpod_api_key))
+        qi = job_queue.queue_info() if job_queue else {}
         return {
             "ready": cloud,
             "status": "offline",
             "message": "GPU-сервер недоступен." + (" Доступна облачная генерация." if cloud else " Генерация невозможна."),
+            "gpu_paused": job_queue.gpu_paused if job_queue else False,
+            "jobs": qi,
         }
 
     running = len(queue.get("queue_running", []))
@@ -114,12 +141,15 @@ async def status():
         else:
             message += " Подождите завершения текущей генерации."
 
+    qi = job_queue.queue_info() if job_queue else {}
     return {
         "ready": ready,
         "status": state,
         "message": message,
         "queue": {"running": running, "pending": pending},
         "vram_free_mb": vram_free_mb,
+        "gpu_paused": False,
+        "jobs": qi,
     }
 
 
@@ -143,6 +173,7 @@ async def health():
         "queue_running": 0,
         "queue_pending": 0,
         "cloud_fallback": cloud,
+        "gpu_paused": job_queue.gpu_paused if job_queue else False,
     }
 
     try:
@@ -165,101 +196,168 @@ async def health():
 
 
 # ------------------------------------------------------------------
-# POST /generate
+# POST /jobs — submit a generation job
 # ------------------------------------------------------------------
 
-@app.post("/generate")
-async def generate(req: GenerateRequest):
+@app.post("/jobs")
+async def submit_job(req: JobRequest):
     if req.model not in VALID_MODELS:
         raise HTTPException(400, f"model must be one of {VALID_MODELS}")
+    if req.input_image and req.denoise is None:
+        req.denoise = 0.65
+
+    request_params = {
+        "prompt": req.prompt,
+        "width": req.width,
+        "height": req.height,
+        "model": req.model,
+        "steps": req.steps,
+        "guidance_scale": req.guidance_scale,
+        "seed": req.seed,
+        "negative_prompt": req.negative_prompt,
+    }
+    if req.input_image:
+        request_params["input_image"] = req.input_image
+    if req.denoise is not None:
+        request_params["denoise"] = req.denoise
 
     try:
-        image_bytes, metadata = await router.generate(
-            prompt=req.prompt,
-            width=req.width,
-            height=req.height,
-            model=req.model,
-            steps=req.steps,
-            guidance_scale=req.guidance_scale,
-            seed=req.seed,
-            negative_prompt=req.negative_prompt,
+        job = job_queue.submit(request_params)
+    except RuntimeError as e:
+        raise HTTPException(429, detail=str(e))
+
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "position": job_queue.get_position(job.id),
+        "created_at": job.created_at,
+    }
+
+
+# ------------------------------------------------------------------
+# GET /jobs/{job_id} — check job status
+# ------------------------------------------------------------------
+
+@app.get("/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    resp = {
+        "job_id": job.id,
+        "status": job.status,
+        "position": job_queue.get_position(job.id),
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+        "error": job.error,
+    }
+    if job.result_metadata:
+        resp["source"] = job.result_metadata.get("source")
+        resp["seed"] = job.result_metadata.get("seed")
+    return resp
+
+
+# ------------------------------------------------------------------
+# GET /jobs/{job_id}/result — download generated image
+# ------------------------------------------------------------------
+
+@app.get("/jobs/{job_id}/result")
+async def get_job_result(job_id: str):
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+
+    if job.status in ("queued", "processing"):
+        return JSONResponse(
+            status_code=202,
+            content={
+                "job_id": job.id,
+                "status": job.status,
+                "position": job_queue.get_position(job.id),
+            },
         )
-    except Exception as e:
-        logger.error("Generation failed: %s", e)
-        raise HTTPException(503, detail=str(e))
 
-    actual_seed = metadata.get("seed", req.seed)
-    source = metadata.get("source", "unknown")
+    if job.status == "failed":
+        raise HTTPException(410, detail=f"Job failed: {job.error}")
 
+    if job.status == "cancelled":
+        raise HTTPException(410, detail="Job was cancelled")
+
+    if not job.result:
+        raise HTTPException(410, detail="Result expired")
+
+    metadata = job.result_metadata or {}
     return StreamingResponse(
-        io.BytesIO(image_bytes),
+        io.BytesIO(job.result),
         media_type="image/png",
         headers={
-            "Content-Disposition": f'attachment; filename="openclaw_{actual_seed}.png"',
-            "X-Source": source,
-            "X-Seed": str(actual_seed),
-            "X-Model": req.model,
+            "Content-Disposition": f'attachment; filename="openclaw_{job.id[:8]}.png"',
+            "X-Source": metadata.get("source", "unknown"),
+            "X-Seed": str(metadata.get("seed", -1)),
+            "X-Model": metadata.get("model", "unknown"),
         },
     )
 
 
 # ------------------------------------------------------------------
-# POST /generate/img2img
+# DELETE /jobs/{job_id} — cancel a queued job
 # ------------------------------------------------------------------
 
-@app.post("/generate/img2img")
-async def generate_img2img(
-    image: UploadFile = File(...),
-    prompt: str = Form(...),
-    width: int = Form(1024),
-    height: int = Form(1024),
-    model: str = Form("flux-dev"),
-    steps: int = Form(20),
-    guidance_scale: float = Form(3.5),
-    seed: int = Form(-1),
-    denoise: float = Form(0.65),
-):
-    if model not in VALID_MODELS:
-        raise HTTPException(400, f"model must be one of {VALID_MODELS}")
-    if denoise < 0.0 or denoise > 1.0:
-        raise HTTPException(400, "denoise must be between 0.0 and 1.0")
+@app.delete("/jobs/{job_id}")
+async def cancel_job(job_id: str):
+    job = job_queue.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job.status != "queued":
+        raise HTTPException(409, f"Cannot cancel job in '{job.status}' state")
+    job_queue.cancel_job(job_id)
+    return {"job_id": job_id, "status": "cancelled"}
 
+
+# ------------------------------------------------------------------
+# POST /upload — upload image for img2img
+# ------------------------------------------------------------------
+
+@app.post("/upload")
+async def upload_image(image: UploadFile = File(...)):
     image_bytes = await image.read()
     try:
-        upload_result = await comfyui.upload_image(image_bytes, "input.png")
-        input_image_name = upload_result.get("name", "input.png")
+        result = await comfyui.upload_image(image_bytes, image.filename or "input.png")
+        return {"filename": result.get("name", "input.png")}
     except Exception as e:
         raise HTTPException(503, detail=f"Failed to upload image to ComfyUI: {e}")
 
-    try:
-        result_bytes, metadata = await router.generate(
-            prompt=prompt,
-            width=width,
-            height=height,
-            model=model,
-            steps=steps,
-            guidance_scale=guidance_scale,
-            seed=seed,
-            input_image=input_image_name,
-            denoise=denoise,
-        )
-    except Exception as e:
-        logger.error("img2img generation failed: %s", e)
-        raise HTTPException(503, detail=str(e))
 
-    actual_seed = metadata.get("seed", seed)
-    source = metadata.get("source", "unknown")
+# ------------------------------------------------------------------
+# POST /gpu/pause — gaming mode ON
+# ------------------------------------------------------------------
 
-    return StreamingResponse(
-        io.BytesIO(result_bytes),
-        media_type="image/png",
-        headers={
-            "Content-Disposition": f'attachment; filename="openclaw_{actual_seed}.png"',
-            "X-Source": source,
-            "X-Seed": str(actual_seed),
-            "X-Model": model,
-        },
-    )
+@app.post("/gpu/pause")
+async def gpu_pause():
+    job_queue.set_gpu_paused(True)
+    qi = job_queue.queue_info()
+    return {
+        "gpu_paused": True,
+        "message": "GPU на паузе. Задачи в очереди будут ждать.",
+        "queued_jobs": qi["total_queued"],
+    }
+
+
+# ------------------------------------------------------------------
+# POST /gpu/resume — gaming mode OFF
+# ------------------------------------------------------------------
+
+@app.post("/gpu/resume")
+async def gpu_resume():
+    job_queue.set_gpu_paused(False)
+    qi = job_queue.queue_info()
+    return {
+        "gpu_paused": False,
+        "message": "GPU возобновлён. Обработка очереди продолжается.",
+        "queued_jobs": qi["total_queued"],
+    }
 
 
 # ------------------------------------------------------------------
