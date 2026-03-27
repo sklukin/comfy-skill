@@ -12,7 +12,7 @@ HF_DL := wget -q --show-progress -c
 HF_DL_AUTH := $(HF_DL) --header="Authorization: Bearer $(HF_TOKEN)"
 
 .PHONY: download-models download-models-flux-dev download-models-flux-schnell \
-        download-models-encoders build up down logs health test gaming resume queue
+        download-models-sdxl download-models-encoders build up down logs health test gaming resume queue
 
 # === Model Downloads ===
 

@@ -14,6 +14,8 @@ Use the local image generation service exposed by `IMAGES_API_URL`.
 - Default FLUX steps: `20`
 - Default FLUX guidance scale: `3.5`
 - Default Schnell steps: `4`
+- Default SDXL steps: `25`
+- Default SDXL guidance scale: `7.0`
 - Default seed: `-1`
 
 ## Model selection
@@ -22,11 +24,13 @@ Choose the model based on the task:
 
 - `flux-dev` — default; best for image quality, readable text inside images, and anatomy, especially hands
 - `flux-schnell` — use for very fast previews and rough prototyping
+- `sdxl` — use for stylized generations, SDXL LoRA ecosystems, or when `negative_prompt` matters
 
 Rules:
 
 - For FLUX models, do **not** send `negative_prompt`; FLUX ignores it
 - For FLUX models, control results with `prompt` and `guidance_scale`
+- For SDXL, `negative_prompt` is supported and useful
 - Generate multiple requested images sequentially, not in parallel
 - Be mindful that the same GPU is shared with other services; avoid creating concurrent load
 
@@ -78,12 +82,12 @@ echo "Job submitted: $JOB_ID"
 Supported parameters:
 
 - `prompt` — required
-- `model` — `flux-dev`, `flux-schnell`
+- `model` — `flux-dev`, `flux-schnell`, `sdxl`
 - `width`, `height` — 256..2048
 - `steps`
 - `guidance_scale`
 - `seed`
-- `negative_prompt` — ignored by FLUX
+- `negative_prompt` — SDXL only; ignored by FLUX
 
 Response:
 
