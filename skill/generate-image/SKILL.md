@@ -48,7 +48,7 @@ Status values:
 |--------|-------|------------|
 | `idle` | true | Proceed immediately |
 | `generating` | true | Can proceed, but latency will be higher |
-| `busy` | varies | Wait before retrying |
+| `busy` | varies | Can still submit jobs; they will queue. Cloud fallback may activate if configured |
 | `paused` | false | GPU unavailable (user is gaming). Do NOT submit jobs. Tell the user generation is paused. |
 | `offline` | false | Backend is down. Tell the user generation is unavailable. |
 
@@ -120,9 +120,14 @@ curl -sf "${IMAGES_API_URL}/jobs/${JOB_ID}/result" -o /tmp/generated.png
 
 Returns PNG with headers `X-Source`, `X-Seed`, `X-Model`.
 
-If the job is not yet complete, this returns HTTP 202 with JSON status.
+- HTTP 202 — job is not yet complete (returns JSON with status and position)
+- HTTP 410 — job failed, was cancelled, or result expired (results are kept for 10 minutes after completion)
+
+Download the result promptly — completed job results expire after 10 minutes.
 
 ## Image-to-image editing
+
+IMG2IMG is only supported with the `flux-dev` model. Do not use `flux-schnell` or `sdxl` for img2img.
 
 Two-step process: upload the source image, then submit a job referencing it.
 
@@ -182,9 +187,9 @@ If `/status` shows `paused` — do NOT retry. Tell the user GPU is paused for ga
 
 If `/status` shows `offline` — do NOT retry. Tell the user generation is unavailable.
 
-If `/status` shows `busy` — you can still submit jobs; they will queue and process when GPU is free.
+If `/status` shows `busy` — you can still submit jobs; they will queue and process when GPU is free. Cloud fallback (fal.ai/RunPod) may activate automatically if configured.
 
-If job submission returns `429` — queue is full. Wait 30 seconds and retry.
+If job submission returns `429` — queue is full (max 50 jobs). Wait 30 seconds and retry.
 
 ## Model discovery
 
