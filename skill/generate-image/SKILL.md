@@ -7,6 +7,13 @@ description: Generate images from text prompts or edit existing images via a loc
 
 Use the local image generation service exposed by `IMAGES_API_URL`.
 
+Bundled wrappers live in `scripts/` next to this file:
+
+- `scripts/generate_image_job.py` — text-to-image helper
+- `scripts/generate_image_img2img_job.py` — image-to-image helper
+
+Prefer these Python wrappers over ad-hoc shell JSON parsing when you need a reliable local helper.
+
 ## Defaults
 
 - Default model: `flux-dev`
@@ -33,6 +40,9 @@ Rules:
 - For SDXL, `negative_prompt` is supported and useful
 - Generate multiple requested images sequentially, not in parallel
 - Be mindful that the same GPU is shared with other services; avoid creating concurrent load
+- For text-to-image, the canonical flow is always: `GET /status` → `POST /jobs` → `GET /jobs/{job_id}` → `GET /jobs/{job_id}/result`
+- Start with `/status` before the first generation request in a task
+- Do not invent or probe alternative generation endpoints when the jobs flow is documented and available
 
 ## Availability check
 
@@ -48,6 +58,8 @@ Status values:
 |--------|-------|------------|
 | `idle` | true | Proceed immediately |
 | `generating` | true | Can proceed, but latency will be higher |
+
+In practice, `generating` is a normal and healthy state: one job is already running, but additional jobs can still be submitted and queued.
 | `busy` | varies | Can still submit jobs; they will queue. Cloud fallback may activate if configured |
 | `paused` | false | GPU unavailable (user is gaming). Do NOT submit jobs. Tell the user generation is paused. |
 | `offline` | false | Backend is down. Tell the user generation is unavailable. |
@@ -59,7 +71,9 @@ The response also includes:
 
 ## Text-to-image generation
 
-Generation uses an async job queue. Submit a job, poll for completion, download the result.
+Generation uses an async job queue. This is the canonical and expected flow for text-to-image requests: submit a job, poll for completion, download the result.
+
+Do not assume a synchronous text-to-image endpoint exists. Do not bypass the job queue when `POST /jobs` is available.
 
 ### Step 1: Submit job
 
@@ -110,6 +124,12 @@ while true; do
 done
 ```
 
+Observed in testing:
+
+- `flux-schnell` text-to-image jobs can complete very quickly (single-digit seconds)
+- `flux-dev` img2img jobs may take around 1-2 minutes, so do not assume a short poll loop is enough
+- `queued` -> `processing` -> `completed` is the expected happy path
+
 Job statuses: `queued` → `processing` → `completed` / `failed` / `cancelled`
 
 ### Step 3: Download result
@@ -122,6 +142,11 @@ Returns PNG with headers `X-Source`, `X-Seed`, `X-Model`.
 
 - HTTP 202 — job is not yet complete (returns JSON with status and position)
 - HTTP 410 — job failed, was cancelled, or result expired (results are kept for 10 minutes after completion)
+
+Observed in testing:
+
+- Calling `/jobs/${JOB_ID}/result` before completion really does return `202` with JSON like `{"job_id":"...","status":"queued","position":1}`
+- Calling `/jobs/${JOB_ID}/result` for a cancelled job returns `410` with a message such as `{"detail":"Job was cancelled"}`
 
 Download the result promptly — completed job results expire after 10 minutes.
 
@@ -155,6 +180,15 @@ JOB_ID=$(echo "$JOB" | python3 -c "import sys,json; print(json.load(sys.stdin)['
 
 Then poll and download as described above.
 
+Recommended bundled wrapper:
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_img2img_job.py \
+  --input /path/to/source.jpg \
+  --prompt "DESCRIBE THE CHANGES" \
+  --output /tmp/edited.png
+```
+
 Denoise guidance:
 
 - `0.3-0.5` — light edits
@@ -181,13 +215,15 @@ curl -sf -X DELETE "${IMAGES_API_URL}/jobs/${JOB_ID}"
 
 Only works for jobs in `queued` status.
 
+Observed in testing: cancelling a queued job returns HTTP 200 with JSON like `{"job_id":"...","status":"cancelled"}`.
+
 ## Retry behavior
 
 If `/status` shows `paused` — do NOT retry. Tell the user GPU is paused for gaming.
 
 If `/status` shows `offline` — do NOT retry. Tell the user generation is unavailable.
 
-If `/status` shows `busy` — you can still submit jobs; they will queue and process when GPU is free. Cloud fallback (fal.ai/RunPod) may activate automatically if configured.
+If `/status` shows `busy` — you can still submit jobs; they will queue and process when GPU is free. Continue to use the same `/jobs` flow; do not switch to undocumented alternatives. Cloud fallback (fal.ai/RunPod) may activate automatically if configured.
 
 If job submission returns `429` — queue is full (max 50 jobs). Wait 30 seconds and retry.
 
@@ -198,6 +234,29 @@ If you need to inspect available checkpoints or LoRAs:
 ```bash
 curl -sf "${IMAGES_API_URL}/models"
 ```
+
+## Bundled wrappers
+
+Use the bundled wrappers when you want deterministic local execution without reimplementing the jobs flow.
+
+Text-to-image:
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_job.py \
+  --prompt "night sky, stars, realistic astronomy photo" \
+  --output /tmp/generated.png
+```
+
+Image-to-image:
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_img2img_job.py \
+  --input /path/to/source.png \
+  --prompt "turn this into a cinematic night scene" \
+  --output /tmp/edited.png
+```
+
+Keep these scripts as the canonical local wrappers for this skill. If you improve the flow, update the skill-bundled scripts first.
 
 ## Returning results
 
@@ -213,3 +272,4 @@ Then:
 - send the generated image as an attachment/media result
 - if generation failed after retries, tell the user clearly what failed
 - if the user asked for multiple images, produce and return them one by one
+
