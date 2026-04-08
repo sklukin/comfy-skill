@@ -25,6 +25,9 @@ WORKFLOW_MAP = {
     "flux-schnell": "flux_schnell_txt2img.json",
     "flux-dev-img2img": "flux_dev_img2img.json",
     "flux-fill": "flux_fill_inpaint.json",
+    "flux-canny": "flux_canny.json",
+    "flux-depth": "flux_depth.json",
+    "flux-kontext": "flux_kontext.json",
     "sdxl": "sdxl_txt2img.json",
 }
 
@@ -78,9 +81,12 @@ class ComfyUIClient:
         payload = {"prompt": workflow, "client_id": client_id}
         r = await self._http.post("/prompt", json=payload)
         if r.status_code != 200:
-            body = r.text
-            logger.error("ComfyUI /prompt rejected (%d): %s", r.status_code, body)
-            r.raise_for_status()
+            try:
+                detail = r.json()
+            except Exception:
+                detail = r.text
+            logger.error("ComfyUI /prompt rejected (%d): %s", r.status_code, detail)
+            raise RuntimeError(f"ComfyUI rejected prompt (HTTP {r.status_code}): {detail}")
         return r.json()["prompt_id"]
 
     async def wait_for_completion(self, prompt_id: str, client_id: str, timeout: float = 300.0) -> dict:
@@ -208,6 +214,10 @@ class ComfyUIClient:
                 inputs["width"] = width
                 inputs["height"] = height
 
+            if cls == "SolidMask":
+                inputs["width"] = width
+                inputs["height"] = height
+
             if cls == "KSampler":
                 inputs["seed"] = seed
                 if steps is not None:
@@ -237,6 +247,8 @@ class ComfyUIClient:
             raise ValueError("flux-fill requires 'input_image' parameter (upload image first via upload_image())")
         if model == "flux-fill" and not params.get("mask_image"):
             raise ValueError("flux-fill requires 'mask_image' parameter (upload mask first via upload_image())")
+        if model in ("flux-canny", "flux-depth", "flux-kontext") and not params.get("input_image"):
+            raise ValueError(f"{model} requires 'input_image' parameter (upload image first via upload_image())")
 
         workflow = self.load_workflow(model)
         workflow = self.inject_params(workflow, params)

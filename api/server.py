@@ -23,7 +23,7 @@ from queue_manager import JobQueue
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("openclaw-images")
 
-VALID_MODELS = {"flux-dev", "flux-schnell", "flux-fill", "sdxl"}
+VALID_MODELS = {"flux-dev", "flux-schnell", "flux-fill", "flux-canny", "flux-depth", "flux-kontext", "sdxl"}
 
 comfyui: ComfyUIClient | None = None
 router: CloudRouter | None = None
@@ -212,6 +212,8 @@ async def submit_job(req: JobRequest):
         raise HTTPException(400, "flux-fill requires input_image (upload image first via /upload)")
     if req.model == "flux-fill" and not req.mask_image:
         raise HTTPException(400, "flux-fill requires mask_image (upload mask first via /upload)")
+    if req.model in ("flux-canny", "flux-depth", "flux-kontext") and not req.input_image:
+        raise HTTPException(400, f"{req.model} requires input_image (upload image first via /upload)")
     if req.input_image and req.denoise is None:
         req.denoise = 0.65
 

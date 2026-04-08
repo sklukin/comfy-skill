@@ -2,7 +2,7 @@
   "1": {
     "class_type": "UNETLoader",
     "inputs": {
-      "unet_name": "flux1-fill-dev-fp8.safetensors",
+      "unet_name": "flux1-kontext-dev-fp8-e4m3fn.safetensors",
       "weight_dtype": "fp8_e4m3fn"
     }
   },
@@ -41,36 +41,31 @@
     }
   },
   "7": {
-    "class_type": "LoadImage",
+    "class_type": "SolidMask",
     "inputs": {
-      "image": "MASK_IMAGE_PLACEHOLDER"
+      "value": 1.0,
+      "width": 1024,
+      "height": 1024
     }
   },
   "8": {
-    "class_type": "ImageToMask",
-    "inputs": {
-      "image": ["7", 0],
-      "channel": "red"
-    }
-  },
-  "9": {
     "class_type": "InpaintModelConditioning",
     "inputs": {
       "positive": ["4", 0],
       "negative": ["5", 0],
       "vae": ["3", 0],
       "pixels": ["6", 0],
-      "mask": ["8", 0],
+      "mask": ["7", 0],
       "noise_mask": true
     }
   },
-  "10": {
+  "9": {
     "class_type": "KSampler",
     "inputs": {
       "model": ["1", 0],
-      "positive": ["9", 0],
-      "negative": ["9", 1],
-      "latent_image": ["9", 2],
+      "positive": ["8", 0],
+      "negative": ["8", 1],
+      "latent_image": ["8", 2],
       "seed": 0,
       "steps": 20,
       "cfg": 1.0,
@@ -79,17 +74,17 @@
       "denoise": 1.0
     }
   },
-  "11": {
+  "10": {
     "class_type": "VAEDecode",
     "inputs": {
-      "samples": ["10", 0],
+      "samples": ["9", 0],
       "vae": ["3", 0]
     }
   },
-  "12": {
+  "11": {
     "class_type": "SaveImage",
     "inputs": {
-      "images": ["11", 0],
+      "images": ["10", 0],
       "filename_prefix": "openclaw"
     }
   }

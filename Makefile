@@ -5,7 +5,7 @@ MODEL_DIR := ./models
 HF_FLUX_DEV    := https://huggingface.co/Comfy-Org/flux1-dev/resolve/main
 HF_FLUX_SCHNELL := https://huggingface.co/Comfy-Org/flux1-schnell/resolve/main
 HF_TEXT_ENC    := https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main
-HF_VAE        := https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main
+HF_VAE        := https://huggingface.co/cocktailpeanut/xulf-dev/resolve/main
 HF_SDXL       := https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main
 
 # HuggingFace base URLs — editing & control models (community FP8 quantizations)
@@ -93,7 +93,7 @@ download-models-encoders:
 		echo "skip ae.safetensors (exists)"; \
 	else \
 		echo "downloading ae.safetensors (~300MB)..."; \
-		$(HF_DL_AUTH) -O "$(MODEL_DIR)/vae/ae.safetensors" \
+		$(HF_DL) -O "$(MODEL_DIR)/vae/ae.safetensors" \
 			"$(HF_VAE)/ae.safetensors" || exit 1; \
 	fi
 
