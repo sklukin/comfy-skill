@@ -17,6 +17,7 @@ HF_FLUX_REDUX   := https://huggingface.co/Runware/FLUX.1-Redux-dev/resolve/main
 HF_CONTROLNET   := https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/resolve/main
 HF_UPSCALE      := https://huggingface.co/Kim2091/UltraSharp/resolve/main
 HF_PULID        := https://huggingface.co/guozinan/PuLID/resolve/main
+HF_WAN_VIDEO    := https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files
 
 HF_DL := wget -q --show-progress -c
 HF_DL_AUTH := $(HF_DL) --header="Authorization: Bearer $(HF_TOKEN)"
@@ -27,6 +28,7 @@ HF_DL_AUTH := $(HF_DL) --header="Authorization: Bearer $(HF_TOKEN)"
         download-models-flux-depth download-models-flux-canny \
         download-models-flux-redux download-models-controlnet \
         download-models-upscale download-models-pulid \
+        download-models-wan-video \
         download-models-editing download-models-all \
         build up down logs health test gaming resume queue
 
@@ -39,7 +41,7 @@ download-models-editing: download-models download-models-flux-fill download-mode
 	@echo "Editing models downloaded to $(MODEL_DIR)"
 
 download-models-all: download-models-editing download-models-flux-depth download-models-flux-canny \
-    download-models-flux-redux download-models-controlnet download-models-pulid
+    download-models-flux-redux download-models-controlnet download-models-pulid download-models-wan-video
 	@echo "All models downloaded to $(MODEL_DIR)"
 
 download-models-flux-dev:
@@ -178,6 +180,40 @@ download-models-pulid:
 		$(HF_DL) -O "$(MODEL_DIR)/pulid/pulid_flux_v0.9.1.safetensors" \
 			"$(HF_PULID)/pulid_flux_v0.9.1.safetensors" || exit 1; \
 	fi
+
+# === Video Models ===
+
+download-models-wan-video:
+	@mkdir -p $(MODEL_DIR)/diffusion_models $(MODEL_DIR)/text_encoders $(MODEL_DIR)/vae
+	@if [ -f "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" ]; then \
+		echo "skip wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors (exists)"; \
+	else \
+		echo "downloading wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors (~14.3GB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" \
+			"$(HF_WAN_VIDEO)/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" || exit 1; \
+	fi
+	@if [ -f "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors" ]; then \
+		echo "skip wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors (exists)"; \
+	else \
+		echo "downloading wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors (~14.3GB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors" \
+			"$(HF_WAN_VIDEO)/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors" || exit 1; \
+	fi
+	@if [ -f "$(MODEL_DIR)/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" ]; then \
+		echo "skip umt5_xxl_fp8_e4m3fn_scaled.safetensors (exists)"; \
+	else \
+		echo "downloading umt5_xxl_fp8_e4m3fn_scaled.safetensors (~6.74GB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
+			"$(HF_WAN_VIDEO)/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" || exit 1; \
+	fi
+	@if [ -f "$(MODEL_DIR)/vae/wan_2.1_vae.safetensors" ]; then \
+		echo "skip wan_2.1_vae.safetensors (exists)"; \
+	else \
+		echo "downloading wan_2.1_vae.safetensors (~254MB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/vae/wan_2.1_vae.safetensors" \
+			"$(HF_WAN_VIDEO)/vae/wan_2.1_vae.safetensors" || exit 1; \
+	fi
+	@echo "Wan 2.2 I2V models downloaded to $(MODEL_DIR)"
 
 # === Docker ===
 

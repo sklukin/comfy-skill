@@ -30,6 +30,7 @@ WORKFLOW_MAP = {
     "flux-kontext": "flux_kontext.json",
     "sdxl": "sdxl_txt2img.json",
     "upscale": "upscale_ultrasharp.json",
+    "wan-video": "wan_video_i2v.json",
 }
 
 
@@ -226,6 +227,17 @@ class ComfyUIClient:
                 if denoise is not None:
                     inputs["denoise"] = denoise
 
+            if cls == "WanImageToVideo":
+                inputs["width"] = width
+                inputs["height"] = height
+
+            if cls == "KSamplerAdvanced":
+                inputs["noise_seed"] = seed
+                if steps is not None:
+                    inputs["steps"] = steps
+                if guidance is not None:
+                    inputs["cfg"] = guidance
+
             if cls == "LoadImage" and inputs.get("image") == "MASK_IMAGE_PLACEHOLDER" and mask_image:
                 inputs["image"] = mask_image
             elif cls == "LoadImage" and input_image:
@@ -252,6 +264,8 @@ class ComfyUIClient:
             raise ValueError(f"{model} requires 'input_image' parameter (upload image first via upload_image())")
         if model == "upscale" and not params.get("input_image"):
             raise ValueError("upscale requires 'input_image' parameter (upload image first via upload_image())")
+        if model == "wan-video" and not params.get("input_image"):
+            raise ValueError("wan-video requires 'input_image' parameter (upload image first via upload_image())")
 
         workflow = self.load_workflow(model)
         workflow = self.inject_params(workflow, params)

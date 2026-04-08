@@ -13,6 +13,7 @@ Bundled wrappers live in `scripts/` next to this file:
 - `scripts/generate_image_img2img_job.py` — image-to-image helper
 - `scripts/generate_image_inpaint_job.py` — inpainting/outpainting helper (FLUX Fill)
 - `scripts/generate_image_upscale_job.py` — 4x upscale helper (UltraSharp)
+- `scripts/generate_image_video_job.py` — image-to-video helper (Wan 2.2)
 
 Prefer these Python wrappers over ad-hoc shell JSON parsing when you need a reliable local helper.
 
@@ -54,6 +55,12 @@ Choose the model based on the task:
 |------|-------|-----|
 | 4x upscale any image | `upscale` | Instant, UltraSharp neural upscaler, no prompt needed |
 
+### Video Generation
+
+| Task | Model | Why |
+|------|-------|-----|
+| Animate an image (image-to-video) | `wan-video` | Wan 2.2 14B, 5s clip at 16fps, ~10 min |
+
 ### Decision guide
 
 1. User wants a new image from scratch → **text-to-image** (flux-dev / flux-schnell / sdxl)
@@ -62,6 +69,7 @@ Choose the model based on the task:
 4. User wants to restyle or tweak an existing image → **img2img** (flux-dev)
 5. User wants a quick draft → **flux-schnell**
 6. User wants a higher resolution version → **upscale** (no prompt needed, just input_image)
+7. User wants to animate an image / create video → **wan-video** (prompt describes motion, ~10 min)
 
 ### Rules
 
@@ -128,7 +136,7 @@ echo "Job submitted: $JOB_ID"
 Supported parameters:
 
 - `prompt` — required
-- `model` — `flux-dev`, `flux-schnell`, `flux-fill`, `sdxl`, `upscale`
+- `model` — `flux-dev`, `flux-schnell`, `flux-fill`, `sdxl`, `upscale`, `wan-video`
 - `width`, `height` — 256..2048
 - `steps`
 - `guidance_scale`
@@ -305,6 +313,63 @@ python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generat
   --output /tmp/inpainted.png
 ```
 
+## Video Generation (Wan 2.2 Image-to-Video)
+
+Use `wan-video` to animate a still image into a ~5 second video clip. This uses the Wan 2.2 14B model with two-stage denoising.
+
+**Important:** Video generation takes ~10 minutes on RTX 4090. Do not submit multiple video jobs simultaneously. Output is animated WebP.
+
+### Step 1: Upload source image
+
+```bash
+UPLOAD=$(curl -sf -X POST "${IMAGES_API_URL}/upload" \
+  -F "image=@/path/to/image.png")
+FILENAME=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['filename'])")
+```
+
+### Step 2: Submit video job
+
+```bash
+JOB=$(curl -sf -X POST "${IMAGES_API_URL}/jobs" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"prompt\": \"DESCRIBE THE DESIRED MOTION\",
+    \"model\": \"wan-video\",
+    \"input_image\": \"${FILENAME}\",
+    \"width\": 768,
+    \"height\": 768
+  }")
+JOB_ID=$(echo "$JOB" | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+```
+
+Then poll and download as described above. Use a longer poll interval (10s) and timeout (900s).
+
+### Video parameters
+
+- `prompt`: describe the motion, not the scene ("camera slowly zooms in", "wind blows through hair")
+- `width`, `height`: 768x768 default, up to 720p (1280x720) but slower
+- `steps`: 20 (two-stage: 10+10)
+- `guidance_scale`: 3.5
+- `seed`: for reproducibility
+- `negative_prompt`: has a good default (Chinese quality tags), rarely needs changing
+- Output: animated WebP, 81 frames at 16fps (~5 seconds)
+
+### Recommended bundled wrapper
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_video_job.py \
+  --input /path/to/image.png \
+  --prompt "camera slowly zooms in, gentle wind" \
+  --output /tmp/video.webp
+```
+
+### When to generate video
+
+- User explicitly asks to animate an image or create a video
+- First generate a good still image, then animate it
+- Do NOT submit multiple video jobs at once — each takes ~10 min and saturates the GPU
+- Video result is animated WebP — most browsers and viewers support it
+
 ## Upscaling (4x UltraSharp)
 
 Use `upscale` to increase image resolution by 4x using the UltraSharp neural network upscaler. No prompt needed — just upload the image.
@@ -421,6 +486,15 @@ Upscale:
 python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_upscale_job.py \
   --input /path/to/image.png \
   --output /tmp/upscaled.png
+```
+
+Video (image-to-video):
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_video_job.py \
+  --input /path/to/image.png \
+  --prompt "camera slowly zooms in" \
+  --output /tmp/video.webp
 ```
 
 Keep these scripts as the canonical local wrappers for this skill. If you improve the flow, update the skill-bundled scripts first.

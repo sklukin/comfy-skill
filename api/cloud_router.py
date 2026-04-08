@@ -229,7 +229,7 @@ class CloudRouter:
                     params["mask_image"] = mask_image
 
                 # Determine internal model name
-                if model in ("flux-fill", "flux-canny", "flux-depth", "flux-kontext", "upscale"):
+                if model in ("flux-fill", "flux-canny", "flux-depth", "flux-kontext", "upscale", "wan-video"):
                     actual_model = model
                 elif input_image and model == "flux-dev":
                     actual_model = "flux-dev-img2img"

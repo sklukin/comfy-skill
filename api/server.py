@@ -23,7 +23,7 @@ from queue_manager import JobQueue
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("openclaw-images")
 
-VALID_MODELS = {"flux-dev", "flux-schnell", "flux-fill", "flux-canny", "flux-depth", "flux-kontext", "sdxl", "upscale"}
+VALID_MODELS = {"flux-dev", "flux-schnell", "flux-fill", "flux-canny", "flux-depth", "flux-kontext", "sdxl", "upscale", "wan-video"}
 
 comfyui: ComfyUIClient | None = None
 router: CloudRouter | None = None
@@ -216,6 +216,8 @@ async def submit_job(req: JobRequest):
         raise HTTPException(400, f"{req.model} requires input_image (upload image first via /upload)")
     if req.model == "upscale" and not req.input_image:
         raise HTTPException(400, "upscale requires input_image (upload image first via /upload)")
+    if req.model == "wan-video" and not req.input_image:
+        raise HTTPException(400, "wan-video requires input_image (upload image first via /upload)")
     if req.input_image and req.denoise is None:
         req.denoise = 0.65
 
@@ -304,11 +306,18 @@ async def get_job_result(job_id: str):
         raise HTTPException(410, detail="Result expired")
 
     metadata = job.result_metadata or {}
+    filename_ext = metadata.get("filename", "")
+    if filename_ext.endswith(".webp"):
+        media_type = "image/webp"
+        out_filename = f"openclaw_{job.id[:8]}.webp"
+    else:
+        media_type = "image/png"
+        out_filename = f"openclaw_{job.id[:8]}.png"
     return StreamingResponse(
         io.BytesIO(job.result),
-        media_type="image/png",
+        media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="openclaw_{job.id[:8]}.png"',
+            "Content-Disposition": f'attachment; filename="{out_filename}"',
             "X-Source": metadata.get("source", "unknown"),
             "X-Seed": str(metadata.get("seed", -1)),
             "X-Model": metadata.get("model", "unknown"),
