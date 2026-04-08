@@ -380,9 +380,13 @@ async def gpu_resume():
 @app.get("/models")
 async def models():
     try:
-        checkpoints = await comfyui.list_models("checkpoints")
-        loras = await comfyui.list_models("loras")
-        return {"checkpoints": checkpoints, "loras": loras}
+        result = {}
+        for folder in ("checkpoints", "diffusion_models", "loras", "upscale_models", "controlnet", "style_models"):
+            try:
+                result[folder] = await comfyui.list_models(folder)
+            except Exception:
+                result[folder] = []
+        return result
     except Exception as e:
         raise HTTPException(503, detail=f"ComfyUI unavailable: {e}")
 
