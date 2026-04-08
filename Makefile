@@ -8,11 +8,11 @@ HF_TEXT_ENC    := https://huggingface.co/comfyanonymous/flux_text_encoders/resol
 HF_VAE        := https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main
 HF_SDXL       := https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main
 
-# HuggingFace base URLs — editing & control models
-HF_FLUX_FILL    := https://huggingface.co/Comfy-Org/flux1-fill-dev/resolve/main
-HF_FLUX_KONTEXT := https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev/resolve/main
-HF_FLUX_DEPTH   := https://huggingface.co/black-forest-labs/FLUX.1-Depth-dev/resolve/main
-HF_FLUX_CANNY   := https://huggingface.co/black-forest-labs/FLUX.1-Canny-dev/resolve/main
+# HuggingFace base URLs — editing & control models (community FP8 quantizations)
+HF_FLUX_FILL    := https://huggingface.co/boricuapab/flux1-fill-dev-fp8/resolve/main
+HF_FLUX_KONTEXT := https://huggingface.co/6chan/flux1-kontext-dev-fp8/resolve/main
+HF_FLUX_DEPTH   := https://huggingface.co/boricuapab/flux1-depth-dev-fp8/resolve/main
+HF_FLUX_CANNY   := https://huggingface.co/boricuapab/flux1-canny-dev-fp8/resolve/main
 HF_FLUX_REDUX   := https://huggingface.co/black-forest-labs/FLUX.1-Redux-dev/resolve/main
 HF_CONTROLNET   := https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/resolve/main
 HF_UPSCALE      := https://huggingface.co/Kim2091/UltraSharp/resolve/main
@@ -111,12 +111,12 @@ download-models-flux-fill:
 
 download-models-flux-kontext:
 	@mkdir -p $(MODEL_DIR)/diffusion_models
-	@if [ -f "$(MODEL_DIR)/diffusion_models/flux1-kontext-dev-fp8.safetensors" ]; then \
-		echo "skip flux1-kontext-dev-fp8.safetensors (exists)"; \
+	@if [ -f "$(MODEL_DIR)/diffusion_models/flux1-kontext-dev-fp8-e4m3fn.safetensors" ]; then \
+		echo "skip flux1-kontext-dev-fp8-e4m3fn.safetensors (exists)"; \
 	else \
-		echo "downloading flux1-kontext-dev-fp8.safetensors (~12GB)..."; \
-		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/flux1-kontext-dev-fp8.safetensors" \
-			"$(HF_FLUX_KONTEXT)/flux1-kontext-dev-fp8.safetensors" || exit 1; \
+		echo "downloading flux1-kontext-dev-fp8-e4m3fn.safetensors (~12GB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/flux1-kontext-dev-fp8-e4m3fn.safetensors" \
+			"$(HF_FLUX_KONTEXT)/flux1-kontext-dev-fp8-e4m3fn.safetensors" || exit 1; \
 	fi
 
 download-models-flux-depth:
@@ -144,8 +144,8 @@ download-models-flux-redux:
 	@if [ -f "$(MODEL_DIR)/style_models/flux1-redux-dev.safetensors" ]; then \
 		echo "skip flux1-redux-dev.safetensors (exists)"; \
 	else \
-		echo "downloading flux1-redux-dev.safetensors..."; \
-		$(HF_DL) -O "$(MODEL_DIR)/style_models/flux1-redux-dev.safetensors" \
+		echo "downloading flux1-redux-dev.safetensors (~123MB)..."; \
+		$(HF_DL_AUTH) -O "$(MODEL_DIR)/style_models/flux1-redux-dev.safetensors" \
 			"$(HF_FLUX_REDUX)/flux1-redux-dev.safetensors" || exit 1; \
 	fi
 
@@ -174,7 +174,7 @@ download-models-pulid:
 	@if [ -f "$(MODEL_DIR)/pulid/pulid_flux_v0.9.1.safetensors" ]; then \
 		echo "skip pulid_flux_v0.9.1.safetensors (exists)"; \
 	else \
-		echo "downloading pulid_flux_v0.9.1.safetensors (~200MB)..."; \
+		echo "downloading pulid_flux_v0.9.1.safetensors (~1.1GB)..."; \
 		$(HF_DL) -O "$(MODEL_DIR)/pulid/pulid_flux_v0.9.1.safetensors" \
 			"$(HF_PULID)/pulid_flux_v0.9.1.safetensors" || exit 1; \
 	fi
