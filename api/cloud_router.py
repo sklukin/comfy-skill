@@ -202,6 +202,7 @@ class CloudRouter:
         guidance_scale: float = 3.5,
         seed: int = -1,
         input_image: str | None = None,
+        mask_image: str | None = None,
         denoise: float | None = None,
         negative_prompt: str = "",
     ) -> tuple[bytes, dict]:
@@ -224,9 +225,17 @@ class CloudRouter:
                 }
                 if input_image:
                     params["input_image"] = input_image
-                    actual_model = "flux-dev-img2img" if model == "flux-dev" else model
+                if mask_image:
+                    params["mask_image"] = mask_image
+
+                # Determine internal model name
+                if model == "flux-fill":
+                    actual_model = "flux-fill"
+                elif input_image and model == "flux-dev":
+                    actual_model = "flux-dev-img2img"
                 else:
                     actual_model = model
+
                 if denoise is not None:
                     params["denoise"] = denoise
 

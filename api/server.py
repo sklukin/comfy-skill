@@ -23,7 +23,7 @@ from queue_manager import JobQueue
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("openclaw-images")
 
-VALID_MODELS = {"flux-dev", "flux-schnell", "sdxl"}
+VALID_MODELS = {"flux-dev", "flux-schnell", "flux-fill", "sdxl"}
 
 comfyui: ComfyUIClient | None = None
 router: CloudRouter | None = None
@@ -40,6 +40,7 @@ class JobRequest(BaseModel):
     seed: int = -1
     negative_prompt: str = ""
     input_image: str | None = None
+    mask_image: str | None = None
     denoise: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
@@ -207,6 +208,10 @@ async def health():
 async def submit_job(req: JobRequest):
     if req.model not in VALID_MODELS:
         raise HTTPException(400, f"model must be one of {VALID_MODELS}")
+    if req.model == "flux-fill" and not req.input_image:
+        raise HTTPException(400, "flux-fill requires input_image (upload image first via /upload)")
+    if req.model == "flux-fill" and not req.mask_image:
+        raise HTTPException(400, "flux-fill requires mask_image (upload mask first via /upload)")
     if req.input_image and req.denoise is None:
         req.denoise = 0.65
 
@@ -222,6 +227,8 @@ async def submit_job(req: JobRequest):
     }
     if req.input_image:
         request_params["input_image"] = req.input_image
+    if req.mask_image:
+        request_params["mask_image"] = req.mask_image
     if req.denoise is not None:
         request_params["denoise"] = req.denoise
 

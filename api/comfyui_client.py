@@ -21,6 +21,7 @@ WORKFLOW_MAP = {
     "flux-dev": "flux_dev_txt2img.json",
     "flux-schnell": "flux_schnell_txt2img.json",
     "flux-dev-img2img": "flux_dev_img2img.json",
+    "flux-fill": "flux_fill_inpaint.json",
     "sdxl": "sdxl_txt2img.json",
 }
 
@@ -161,6 +162,7 @@ class ComfyUIClient:
             guidance_scale: float — guidance for FLUX
             denoise: float — denoise strength for img2img
             input_image: str — uploaded image filename for img2img
+            mask_image: str — uploaded mask image filename for inpainting
             negative_prompt: str — negative prompt (SDXL only)
             ckpt_name: str — override checkpoint filename
         """
@@ -173,6 +175,7 @@ class ComfyUIClient:
         guidance = params.get("guidance_scale")
         denoise = params.get("denoise")
         input_image = params.get("input_image")
+        mask_image = params.get("mask_image")
         negative_prompt = params.get("negative_prompt", "")
         ckpt_name = params.get("ckpt_name")
 
@@ -206,7 +209,9 @@ class ComfyUIClient:
                 if denoise is not None:
                     inputs["denoise"] = denoise
 
-            if cls == "LoadImage" and input_image:
+            if cls == "LoadImage" and inputs.get("image") == "MASK_IMAGE_PLACEHOLDER" and mask_image:
+                inputs["image"] = mask_image
+            elif cls == "LoadImage" and input_image:
                 inputs["image"] = input_image
 
         return wf
@@ -222,6 +227,10 @@ class ComfyUIClient:
         """
         if model == "flux-dev-img2img" and not params.get("input_image"):
             raise ValueError("img2img model requires 'input_image' parameter (upload image first via upload_image())")
+        if model == "flux-fill" and not params.get("input_image"):
+            raise ValueError("flux-fill requires 'input_image' parameter (upload image first via upload_image())")
+        if model == "flux-fill" and not params.get("mask_image"):
+            raise ValueError("flux-fill requires 'mask_image' parameter (upload mask first via upload_image())")
 
         workflow = self.load_workflow(model)
         workflow = self.inject_params(workflow, params)

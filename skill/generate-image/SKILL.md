@@ -1,6 +1,6 @@
 ---
 name: generate_image
-description: Generate images from text prompts or edit existing images via a local image generation API backed by FLUX.1, SDXL, and automatic cloud fallback. Use when the user asks to create an image, make a quick visual concept, generate multiple images sequentially, or modify an existing image with img2img.
+description: Generate images from text prompts, edit existing images (img2img, inpainting, outpainting), via a local image generation API backed by FLUX.1, SDXL, and automatic cloud fallback. Use when the user asks to create an image, make a quick visual concept, generate multiple images sequentially, modify an existing image, inpaint/remove/replace parts of an image, or extend an image.
 ---
 
 # Generate Image
@@ -11,6 +11,7 @@ Bundled wrappers live in `scripts/` next to this file:
 
 - `scripts/generate_image_job.py` — text-to-image helper
 - `scripts/generate_image_img2img_job.py` — image-to-image helper
+- `scripts/generate_image_inpaint_job.py` — inpainting/outpainting helper (FLUX Fill)
 
 Prefer these Python wrappers over ad-hoc shell JSON parsing when you need a reliable local helper.
 
@@ -29,18 +30,41 @@ Prefer these Python wrappers over ad-hoc shell JSON parsing when you need a reli
 
 Choose the model based on the task:
 
-- `flux-dev` — default; best for image quality, readable text inside images, and anatomy, especially hands
-- `flux-schnell` — use for very fast previews and rough prototyping
-- `sdxl` — use for stylized generations, SDXL LoRA ecosystems, or when `negative_prompt` matters
+### Text-to-Image (generation from scratch)
 
-Rules:
+| Task | Model | Why |
+|------|-------|-----|
+| Best quality, details, readable text, hands | `flux-dev` | 20 steps, best anatomy and text rendering |
+| Fast preview / rough prototype | `flux-schnell` | 4 steps, <2s |
+| Stylized, anime, LoRA ecosystems | `sdxl` | Huge LoRA ecosystem, negative_prompt support |
+
+### Image Editing
+
+| Task | Model | Why |
+|------|-------|-----|
+| Replace part of image (inpainting) | `flux-fill` | Best open inpainting model, mask-based |
+| Extend image (outpainting) | `flux-fill` | Pad canvas, mask empty area |
+| Light style/detail changes | `flux-dev` (img2img) | denoise 0.3-0.7 |
+| Strong regeneration from reference | `flux-dev` (img2img) | denoise 0.7-0.9 |
+
+### Decision guide
+
+1. User wants a new image from scratch → **text-to-image** (flux-dev / flux-schnell / sdxl)
+2. User wants to change part of an existing image → **inpainting** (flux-fill)
+3. User wants to extend/uncrop an image → **outpainting** (flux-fill)
+4. User wants to restyle or tweak an existing image → **img2img** (flux-dev)
+5. User wants a quick draft → **flux-schnell**
+
+### Rules
 
 - For FLUX models, do **not** send `negative_prompt`; FLUX ignores it
 - For FLUX models, control results with `prompt` and `guidance_scale`
 - For SDXL, `negative_prompt` is supported and useful
+- IMG2IMG is only supported with `flux-dev`
+- Inpainting requires `flux-fill` with both `input_image` and `mask_image`
 - Generate multiple requested images sequentially, not in parallel
 - Be mindful that the same GPU is shared with other services; avoid creating concurrent load
-- For text-to-image, the canonical flow is always: `GET /status` → `POST /jobs` → `GET /jobs/{job_id}` → `GET /jobs/{job_id}/result`
+- For all generation, the canonical flow is always: `GET /status` → `POST /jobs` → `GET /jobs/{job_id}` → `GET /jobs/{job_id}/result`
 - Start with `/status` before the first generation request in a task
 - Do not invent or probe alternative generation endpoints when the jobs flow is documented and available
 
@@ -96,12 +120,15 @@ echo "Job submitted: $JOB_ID"
 Supported parameters:
 
 - `prompt` — required
-- `model` — `flux-dev`, `flux-schnell`, `sdxl`
+- `model` — `flux-dev`, `flux-schnell`, `flux-fill`, `sdxl`
 - `width`, `height` — 256..2048
 - `steps`
 - `guidance_scale`
 - `seed`
 - `negative_prompt` — SDXL only; ignored by FLUX
+- `input_image` — uploaded filename for img2img or inpainting
+- `mask_image` — uploaded filename for inpainting (required with `flux-fill`)
+- `denoise` — strength for img2img/inpainting (0.0-1.0)
 
 Response:
 
@@ -195,6 +222,81 @@ Denoise guidance:
 - `0.5-0.7` — moderate changes
 - `0.7-0.9` — strong regeneration
 
+## Inpainting / Outpainting (FLUX Fill)
+
+Use `flux-fill` to replace or generate content in specific areas of an image using a mask.
+
+### When to use
+
+- Replace an object ("remove the cat, put a dog")
+- Remove an object ("remove the watermark/text")
+- Extend an image (outpainting / uncropping)
+- Replace background (combine with background removal for mask)
+
+### Mask format
+
+The mask is a separate image, same dimensions as the source:
+- **White** (255) = area to inpaint (replace)
+- **Black** (0) = area to keep unchanged
+- **Gray** values = partial inpainting (smooth transitions via DifferentialDiffusion)
+
+### Step 1: Upload source image
+
+```bash
+UPLOAD_IMG=$(curl -sf -X POST "${IMAGES_API_URL}/upload" \
+  -F "image=@/path/to/source.png")
+IMG_FILENAME=$(echo "$UPLOAD_IMG" | python3 -c "import sys,json; print(json.load(sys.stdin)['filename'])")
+```
+
+### Step 2: Upload mask image
+
+```bash
+UPLOAD_MASK=$(curl -sf -X POST "${IMAGES_API_URL}/upload" \
+  -F "image=@/path/to/mask.png")
+MASK_FILENAME=$(echo "$UPLOAD_MASK" | python3 -c "import sys,json; print(json.load(sys.stdin)['filename'])")
+```
+
+### Step 3: Submit inpainting job
+
+```bash
+JOB=$(curl -sf -X POST "${IMAGES_API_URL}/jobs" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"prompt\": \"DESCRIBE WHAT SHOULD APPEAR IN THE MASKED AREA\",
+    \"model\": \"flux-fill\",
+    \"input_image\": \"${IMG_FILENAME}\",
+    \"mask_image\": \"${MASK_FILENAME}\",
+    \"denoise\": 1.0
+  }")
+JOB_ID=$(echo "$JOB" | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+```
+
+Then poll and download as described above.
+
+### Inpainting parameters
+
+- `denoise`: `0.8-1.0` for full replacement, `0.5-0.7` for gentle correction
+- `guidance_scale`: `3.5` (same as flux-dev)
+- `steps`: `20`
+- `prompt`: describes what should be in the masked area, NOT the whole image
+
+### Outpainting (extending an image)
+
+To extend an image beyond its borders:
+1. Create a larger canvas and place the original image on it (e.g., centered)
+2. Create a mask where the empty/padded area is white and the original image area is black
+3. Submit with `flux-fill`, prompt describing what should appear beyond the edges
+
+### Recommended bundled wrapper
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_inpaint_job.py \
+  --input /path/to/source.png \
+  --mask /path/to/mask.png \
+  --prompt "a golden retriever sitting on the grass" \
+  --output /tmp/inpainted.png
+```
+
 ## Fast preview mode
 
 For very fast previews, use `flux-schnell` with 4 steps:
@@ -254,6 +356,16 @@ python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generat
   --input /path/to/source.png \
   --prompt "turn this into a cinematic night scene" \
   --output /tmp/edited.png
+```
+
+Inpainting:
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_inpaint_job.py \
+  --input /path/to/source.png \
+  --mask /path/to/mask.png \
+  --prompt "a golden retriever sitting on the grass" \
+  --output /tmp/inpainted.png
 ```
 
 Keep these scripts as the canonical local wrappers for this skill. If you improve the flow, update the skill-bundled scripts first.
