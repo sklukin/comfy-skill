@@ -12,6 +12,7 @@ Bundled wrappers live in `scripts/` next to this file:
 - `scripts/generate_image_job.py` — text-to-image helper
 - `scripts/generate_image_img2img_job.py` — image-to-image helper
 - `scripts/generate_image_inpaint_job.py` — inpainting/outpainting helper (FLUX Fill)
+- `scripts/generate_image_upscale_job.py` — 4x upscale helper (UltraSharp)
 
 Prefer these Python wrappers over ad-hoc shell JSON parsing when you need a reliable local helper.
 
@@ -47,6 +48,12 @@ Choose the model based on the task:
 | Light style/detail changes | `flux-dev` (img2img) | denoise 0.3-0.7 |
 | Strong regeneration from reference | `flux-dev` (img2img) | denoise 0.7-0.9 |
 
+### Upscaling
+
+| Task | Model | Why |
+|------|-------|-----|
+| 4x upscale any image | `upscale` | Instant, UltraSharp neural upscaler, no prompt needed |
+
 ### Decision guide
 
 1. User wants a new image from scratch → **text-to-image** (flux-dev / flux-schnell / sdxl)
@@ -54,6 +61,7 @@ Choose the model based on the task:
 3. User wants to extend/uncrop an image → **outpainting** (flux-fill)
 4. User wants to restyle or tweak an existing image → **img2img** (flux-dev)
 5. User wants a quick draft → **flux-schnell**
+6. User wants a higher resolution version → **upscale** (no prompt needed, just input_image)
 
 ### Rules
 
@@ -120,7 +128,7 @@ echo "Job submitted: $JOB_ID"
 Supported parameters:
 
 - `prompt` — required
-- `model` — `flux-dev`, `flux-schnell`, `flux-fill`, `sdxl`
+- `model` — `flux-dev`, `flux-schnell`, `flux-fill`, `sdxl`, `upscale`
 - `width`, `height` — 256..2048
 - `steps`
 - `guidance_scale`
@@ -297,6 +305,45 @@ python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generat
   --output /tmp/inpainted.png
 ```
 
+## Upscaling (4x UltraSharp)
+
+Use `upscale` to increase image resolution by 4x using the UltraSharp neural network upscaler. No prompt needed — just upload the image.
+
+A 1024x1024 image becomes 4096x4096. Fast (seconds, not minutes).
+
+### Step 1: Upload image
+
+```bash
+UPLOAD=$(curl -sf -X POST "${IMAGES_API_URL}/upload" \
+  -F "image=@/path/to/image.png")
+FILENAME=$(echo "$UPLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin)['filename'])")
+```
+
+### Step 2: Submit upscale job
+
+```bash
+JOB=$(curl -sf -X POST "${IMAGES_API_URL}/jobs" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\": \"upscale\", \"input_image\": \"${FILENAME}\"}")
+JOB_ID=$(echo "$JOB" | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+```
+
+Then poll and download as described above.
+
+### Recommended bundled wrapper
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_upscale_job.py \
+  --input /path/to/image.png \
+  --output /tmp/upscaled.png
+```
+
+### When to upscale
+
+- After generating an image that needs higher resolution for print or display
+- User explicitly asks for a bigger/higher-res version
+- Do NOT upscale before img2img or inpainting — work at native resolution first, upscale at the end
+
 ## Fast preview mode
 
 For very fast previews, use `flux-schnell` with 4 steps:
@@ -366,6 +413,14 @@ python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generat
   --mask /path/to/mask.png \
   --prompt "a golden retriever sitting on the grass" \
   --output /tmp/inpainted.png
+```
+
+Upscale:
+
+```bash
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_upscale_job.py \
+  --input /path/to/image.png \
+  --output /tmp/upscaled.png
 ```
 
 Keep these scripts as the canonical local wrappers for this skill. If you improve the flow, update the skill-bundled scripts first.

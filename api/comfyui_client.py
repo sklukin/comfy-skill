@@ -29,6 +29,7 @@ WORKFLOW_MAP = {
     "flux-depth": "flux_depth.json",
     "flux-kontext": "flux_kontext.json",
     "sdxl": "sdxl_txt2img.json",
+    "upscale": "upscale_ultrasharp.json",
 }
 
 
@@ -249,6 +250,8 @@ class ComfyUIClient:
             raise ValueError("flux-fill requires 'mask_image' parameter (upload mask first via upload_image())")
         if model in ("flux-canny", "flux-depth", "flux-kontext") and not params.get("input_image"):
             raise ValueError(f"{model} requires 'input_image' parameter (upload image first via upload_image())")
+        if model == "upscale" and not params.get("input_image"):
+            raise ValueError("upscale requires 'input_image' parameter (upload image first via upload_image())")
 
         workflow = self.load_workflow(model)
         workflow = self.inject_params(workflow, params)
