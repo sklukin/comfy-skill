@@ -11,8 +11,8 @@ HF_SDXL       := https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0
 # HuggingFace base URLs — editing & control models (community FP8 quantizations)
 HF_FLUX_FILL    := https://huggingface.co/boricuapab/flux1-fill-dev-fp8/resolve/main
 HF_FLUX_KONTEXT := https://huggingface.co/6chan/flux1-kontext-dev-fp8/resolve/main
-HF_FLUX_DEPTH   := https://huggingface.co/boricuapab/flux1-depth-dev-fp8/resolve/main
-HF_FLUX_CANNY   := https://huggingface.co/boricuapab/flux1-canny-dev-fp8/resolve/main
+HF_FLUX_DEPTH   := https://huggingface.co/Academia-SD/flux1-Depth-Dev-FP8/resolve/main
+HF_FLUX_CANNY   := https://huggingface.co/Academia-SD/flux1-Canny-Dev-FP8/resolve/main
 HF_FLUX_REDUX   := https://huggingface.co/black-forest-labs/FLUX.1-Redux-dev/resolve/main
 HF_CONTROLNET   := https://huggingface.co/Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0/resolve/main
 HF_UPSCALE      := https://huggingface.co/Kim2091/UltraSharp/resolve/main
@@ -126,7 +126,7 @@ download-models-flux-depth:
 	else \
 		echo "downloading flux1-depth-dev-fp8.safetensors (~12GB)..."; \
 		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/flux1-depth-dev-fp8.safetensors" \
-			"$(HF_FLUX_DEPTH)/flux1-depth-dev-fp8.safetensors" || exit 1; \
+			"$(HF_FLUX_DEPTH)/flux1-Depth-Dev_FP8.safetensors" || exit 1; \
 	fi
 
 download-models-flux-canny:
@@ -136,7 +136,7 @@ download-models-flux-canny:
 	else \
 		echo "downloading flux1-canny-dev-fp8.safetensors (~12GB)..."; \
 		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/flux1-canny-dev-fp8.safetensors" \
-			"$(HF_FLUX_CANNY)/flux1-canny-dev-fp8.safetensors" || exit 1; \
+			"$(HF_FLUX_CANNY)/flux1-Canny-Dev_FP8.safetensors" || exit 1; \
 	fi
 
 download-models-flux-redux:
