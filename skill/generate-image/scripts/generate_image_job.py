@@ -44,7 +44,7 @@ def main():
     p = argparse.ArgumentParser(description="Submit and wait for an Images API text2img job")
     p.add_argument("--base-url", default=DEFAULT_BASE_URL)
     p.add_argument("--prompt", required=True)
-    p.add_argument("--model", default="flux-dev", choices=["flux-dev", "flux-schnell", "sdxl"])
+    p.add_argument("--model", default="flux-dev")
     p.add_argument("--width", type=int, default=1024)
     p.add_argument("--height", type=int, default=1024)
     p.add_argument("--steps", type=int)
