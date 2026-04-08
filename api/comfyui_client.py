@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import random
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import httpx
 import websockets
@@ -74,7 +77,10 @@ class ComfyUIClient:
         """POST /prompt — submit workflow, return prompt_id."""
         payload = {"prompt": workflow, "client_id": client_id}
         r = await self._http.post("/prompt", json=payload)
-        r.raise_for_status()
+        if r.status_code != 200:
+            body = r.text
+            logger.error("ComfyUI /prompt rejected (%d): %s", r.status_code, body)
+            r.raise_for_status()
         return r.json()["prompt_id"]
 
     async def wait_for_completion(self, prompt_id: str, client_id: str, timeout: float = 300.0) -> dict:
