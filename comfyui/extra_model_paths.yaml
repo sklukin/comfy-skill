@@ -5,3 +5,6 @@ openclaw:
   clip: text_encoders/
   diffusion_models: diffusion_models/
   loras: loras/
+  upscale_models: upscale_models/
+  controlnet: controlnet/
+  style_models: style_models/

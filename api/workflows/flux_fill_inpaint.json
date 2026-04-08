@@ -54,12 +54,6 @@
     }
   },
   "9": {
-    "class_type": "DifferentialDiffusion",
-    "inputs": {
-      "model": ["1", 0]
-    }
-  },
-  "10": {
     "class_type": "InpaintModelConditioning",
     "inputs": {
       "positive": ["4", 0],
@@ -69,13 +63,13 @@
       "mask": ["8", 0]
     }
   },
-  "11": {
+  "10": {
     "class_type": "KSampler",
     "inputs": {
-      "model": ["9", 0],
-      "positive": ["10", 0],
-      "negative": ["10", 1],
-      "latent_image": ["10", 2],
+      "model": ["1", 0],
+      "positive": ["9", 0],
+      "negative": ["9", 1],
+      "latent_image": ["9", 2],
       "seed": 0,
       "steps": 20,
       "cfg": 1.0,
@@ -84,17 +78,17 @@
       "denoise": 1.0
     }
   },
-  "12": {
+  "11": {
     "class_type": "VAEDecode",
     "inputs": {
-      "samples": ["11", 0],
+      "samples": ["10", 0],
       "vae": ["3", 0]
     }
   },
-  "13": {
+  "12": {
     "class_type": "SaveImage",
     "inputs": {
-      "images": ["12", 0],
+      "images": ["11", 0],
       "filename_prefix": "openclaw"
     }
   }
