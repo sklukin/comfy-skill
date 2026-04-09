@@ -12,7 +12,7 @@ OpenClaw Agent → skill (curl) → REST API (:8189) → ComfyUI (:8188) → RTX
 ```
 
 - **ComfyUI** — headless GPU worker, принимает JSON-workflows
-- **REST API** — FastAPI, endpoints: `/jobs`, `/jobs/{id}`, `/jobs/{id}/result`, `/upload`, `/status`, `/health`, `/models`, `/gpu/pause`, `/gpu/resume`
+- **REST API** — FastAPI, endpoints: `/jobs`, `/jobs/{id}`, `/jobs/{id}/result`, `/upload`, `/health`, `/models`, `/gpu/pause`, `/gpu/resume`
 - **Job Queue** — асинхронная очередь задач (`queue_manager.py`), поддержка нескольких агентов одновременно
 - **Cloud Router** — автоматический фолбэк в fal.ai/RunPod при перегрузке GPU
 - **Gaming Mode** — `make gaming` / `make resume` для паузы GPU когда пользователь играет

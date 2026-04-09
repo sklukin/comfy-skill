@@ -45,7 +45,6 @@ make health
 | `GET` | `/jobs/{id}/result` | Скачать готовое изображение (PNG) |
 | `DELETE` | `/jobs/{id}` | Отменить задачу в очереди |
 | `POST` | `/upload` | Загрузить изображение для img2img |
-| `GET` | `/status` | Статус сервиса для агентов |
 | `GET` | `/health` | Здоровье сервиса, GPU, VRAM |
 | `GET` | `/models` | Список установленных моделей |
 | `POST` | `/gpu/pause` | Gaming mode — пауза GPU, освобождение VRAM |

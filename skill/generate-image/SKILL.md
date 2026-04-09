@@ -80,34 +80,8 @@ Choose the model based on the task:
 - Inpainting requires `flux-fill` with both `input_image` and `mask_image`
 - Generate multiple requested images sequentially, not in parallel
 - Be mindful that the same GPU is shared with other services; avoid creating concurrent load
-- For all generation, the canonical flow is always: `GET /status` → `POST /jobs` → `GET /jobs/{job_id}` → `GET /jobs/{job_id}/result`
-- Start with `/status` before the first generation request in a task
+- For all generation, the canonical flow is always: `POST /jobs` → `GET /jobs/{job_id}` → `GET /jobs/{job_id}/result`
 - Do not invent or probe alternative generation endpoints when the jobs flow is documented and available
-
-## Availability check
-
-Check generator status before submitting work:
-
-```bash
-curl -sf "${IMAGES_API_URL}/status"
-```
-
-Status values:
-
-| status | ready | What to do |
-|--------|-------|------------|
-| `idle` | true | Proceed immediately |
-| `generating` | true | Can proceed, but latency will be higher |
-
-In practice, `generating` is a normal and healthy state: one job is already running, but additional jobs can still be submitted and queued.
-| `busy` | varies | Can still submit jobs; they will queue. Cloud fallback may activate if configured |
-| `paused` | false | GPU unavailable (user is gaming). Do NOT submit jobs. Tell the user generation is paused. |
-| `offline` | false | Backend is down. Tell the user generation is unavailable. |
-
-The response also includes:
-
-- `gpu_paused` — `true` if gaming mode is active
-- `jobs` — `{total_queued, processing, gpu_paused}` — queue state
 
 ## Text-to-image generation
 
@@ -433,13 +407,9 @@ Observed in testing: cancelling a queued job returns HTTP 200 with JSON like `{"
 
 ## Retry behavior
 
-If `/status` shows `paused` — do NOT retry. Tell the user GPU is paused for gaming.
+If `POST /jobs` returns `503` — generator is unavailable (GPU paused for gaming, or ComfyUI offline) and no cloud fallback is configured. Do NOT retry. Tell the user generation is unavailable.
 
-If `/status` shows `offline` — do NOT retry. Tell the user generation is unavailable.
-
-If `/status` shows `busy` — you can still submit jobs; they will queue and process when GPU is free. Continue to use the same `/jobs` flow; do not switch to undocumented alternatives. Cloud fallback (fal.ai/RunPod) may activate automatically if configured.
-
-If job submission returns `429` — queue is full (max 50 jobs). Wait 30 seconds and retry.
+If `POST /jobs` returns `429` — queue is full (max 50 jobs). Wait 30 seconds and retry.
 
 ## Model discovery
 

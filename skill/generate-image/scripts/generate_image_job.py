@@ -61,17 +61,6 @@ def main():
     if args.guidance_scale is None:
         args.guidance_scale = 7.0 if args.model == "sdxl" else 3.5
 
-    try:
-        status = http_json(f"{args.base_url}/status", timeout=30)
-        log_json("status", status)
-    except Exception as e:
-        print(f"Failed to read generator status: {e}", file=sys.stderr)
-        return 2
-
-    if not status.get("ready") or status.get("status") in {"paused", "offline"}:
-        print(f"Generator unavailable: {status.get('status')}", file=sys.stderr)
-        return 2
-
     payload = {
         "prompt": args.prompt,
         "model": args.model,

@@ -85,80 +85,6 @@ app = FastAPI(title="OpenClaw Images API", lifespan=lifespan)
 
 
 # ------------------------------------------------------------------
-# GET /status — agent-friendly service status
-# ------------------------------------------------------------------
-
-@app.get("/status")
-async def status():
-    """Human-readable status for OpenClaw agents."""
-    # GPU paused — override everything
-    if job_queue and job_queue.gpu_paused:
-        cloud = bool(router and (router.fal_key or router.runpod_api_key))
-        qi = job_queue.queue_info()
-        return {
-            "ready": cloud,
-            "status": "paused",
-            "message": "GPU на паузе (gaming mode)." + (" Облачная генерация доступна." if cloud else ""),
-            "gpu_paused": True,
-            "jobs": qi,
-        }
-
-    try:
-        stats = await comfyui.health()
-        queue = await comfyui.queue_status()
-    except Exception:
-        cloud = bool(router and (router.fal_key or router.runpod_api_key))
-        qi = job_queue.queue_info() if job_queue else {}
-        return {
-            "ready": cloud,
-            "status": "offline",
-            "message": "GPU-сервер недоступен." + (" Доступна облачная генерация." if cloud else " Генерация невозможна."),
-            "gpu_paused": job_queue.gpu_paused if job_queue else False,
-            "jobs": qi,
-        }
-
-    running = len(queue.get("queue_running", []))
-    pending = len(queue.get("queue_pending", []))
-    total_queued = running + pending
-
-    devices = stats.get("devices", [])
-    vram_free_mb = 0
-    if devices:
-        vram_free_mb = int(devices[0].get("vram_free", 0) / (1024 * 1024))
-
-    max_queue = router.max_queue_depth if router else 3
-
-    if total_queued == 0:
-        state = "idle"
-        ready = True
-        message = "Готов к генерации."
-    elif total_queued < max_queue:
-        state = "generating"
-        ready = True
-        message = f"Генерация в процессе ({running} выполняется, {pending} в очереди). Можно отправить ещё запрос."
-    else:
-        cloud = bool(router and (router.fal_key or router.runpod_api_key))
-        state = "busy"
-        ready = cloud
-        message = f"GPU занят ({running} выполняется, {pending} в очереди)."
-        if cloud:
-            message += " Запрос будет отправлен в облако."
-        else:
-            message += " Подождите завершения текущей генерации."
-
-    qi = job_queue.queue_info() if job_queue else {}
-    return {
-        "ready": ready,
-        "status": state,
-        "message": message,
-        "queue": {"running": running, "pending": pending},
-        "vram_free_mb": vram_free_mb,
-        "gpu_paused": False,
-        "jobs": qi,
-    }
-
-
-# ------------------------------------------------------------------
 # GET /health
 # ------------------------------------------------------------------
 
@@ -220,6 +146,17 @@ async def submit_job(req: JobRequest):
         raise HTTPException(400, "wan-video requires input_image (upload image first via /upload)")
     if req.input_image and req.denoise is None and req.model not in ("upscale", "wan-video"):
         req.denoise = 0.65
+
+    cloud_available = bool(router and (router.fal_key or router.runpod_api_key))
+
+    if job_queue and job_queue.gpu_paused and not cloud_available:
+        raise HTTPException(503, "GPU paused (gaming mode), no cloud fallback configured")
+
+    try:
+        await comfyui.health()
+    except Exception:
+        if not cloud_available:
+            raise HTTPException(503, "ComfyUI unavailable, no cloud fallback configured")
 
     request_params = {
         "prompt": req.prompt,

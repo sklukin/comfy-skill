@@ -244,4 +244,4 @@ resume:
 
 queue:
 	@echo "=== Job Queue ===" && \
-	curl -sf http://localhost:8189/status | python3 -m json.tool
+	curl -sf http://localhost:8189/health | python3 -m json.tool
