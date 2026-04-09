@@ -6,8 +6,10 @@
 
 - **ComfyUI** — headless GPU worker (FLUX.1 Dev FP8, 9-16с на картинку 1024x1024)
 - **REST API** — FastAPI, асинхронная очередь задач, маршрутизация между локальным GPU и облаком
-- **OpenClaw Skill** — `skill/generate-image/` — учит агента генерировать изображения через API
+- **OpenClaw Skill** — `skill/generate-image/` — учит агента генерировать изображения и видео через API
 - **Cloud Fallback** — fal.ai / RunPod при перегрузке GPU
+- **Image Editing & Control** — inpainting (flux-fill), canny/depth controlnet, kontext, 4x upscale
+- **Image-to-Video** — Wan 2.2 TI2V 5B (~60с на 768x768, 81 кадр, ~5с видео)
 
 ## Требования
 
@@ -68,11 +70,19 @@ curl -s -o image.png http://localhost:8189/jobs/$JOB_ID/result
 
 ## Модели
 
+Параметр `model` в `POST /jobs`:
+
 | Модель | VRAM | Время | Назначение |
 |--------|------|-------|------------|
-| FLUX.1 Dev FP8 | ~12GB | 9-16с | Основная: фотореализм, текст, анатомия |
-| FLUX.1 Schnell FP8 | ~12GB | <1с | Быстрое прототипирование |
-| SDXL | ~6-8GB | 6-13с | Стилизация, огромная экосистема LoRA |
+| `flux-dev` | ~12GB | 9-16с | Основная: фотореализм, текст, анатомия |
+| `flux-schnell` | ~12GB | <1с | Быстрое прототипирование (4 шага) |
+| `sdxl` | ~6-8GB | 6-13с | Стилизация, огромная экосистема LoRA |
+| `flux-fill` | ~12GB | 15-25с | Inpainting по маске |
+| `flux-canny` | ~12GB | 15-25с | Генерация по canny edge-карте |
+| `flux-depth` | ~12GB | 15-25с | Генерация по depth-карте |
+| `flux-kontext` | ~12GB | 15-25с | Контекстное редактирование |
+| `upscale` | ~2GB | 2-5с | 4x UltraSharp апскейл (без промпта) |
+| `wan-video` | ~20GB | ~60с | Image-to-video (Wan 2.2 TI2V 5B, WebP 81 кадр) |
 
 Файлы хранятся в `models/` (volume-mount, не в Docker image).
 
@@ -115,7 +125,9 @@ cp .env.example .env
 
 Skill в `skill/generate-image/SKILL.md` учит OpenClaw-агента:
 - Генерировать изображения по текстовому описанию
-- Редактировать изображения (img2img)
+- Редактировать изображения (img2img, inpainting, canny/depth/kontext control)
+- Апскейлить изображения (4x UltraSharp)
+- Анимировать картинку в видео (Wan 2.2 image-to-video)
 - Обрабатывать ошибки и асинхронную очередь
 - Выбирать модель по задаче
 
@@ -152,15 +164,32 @@ Skill в `skill/generate-image/SKILL.md` учит OpenClaw-агента:
 ## Makefile targets
 
 ```bash
-make download-models          # Скачать все модели
-make download-models-flux-dev # Только FLUX.1 Dev FP8
-make build                    # Собрать Docker-образы
-make up                       # Запустить сервисы
-make down                     # Остановить
-make logs                     # Логи
-make health                   # Проверка здоровья
-make test                     # Запуск тестов
-make gaming                   # Пауза GPU (gaming mode)
-make resume                   # Возобновить GPU
-make queue                    # Статус очереди задач
+# Модели (скачивание идемпотентно: пропускает существующие файлы)
+make download-models              # Базовые: flux-dev, flux-schnell, sdxl, encoders (~30GB)
+make download-models-editing      # Базовые + flux-fill + flux-kontext + upscale
+make download-models-all          # Всё: + depth, canny, redux, controlnet, pulid, wan-video
+
+# Точечные загрузки
+make download-models-flux-dev     # FLUX.1 Dev FP8
+make download-models-flux-schnell # FLUX.1 Schnell FP8
+make download-models-sdxl         # SDXL 1.0 base
+make download-models-flux-fill    # FLUX.1 Fill (inpainting)
+make download-models-flux-kontext # FLUX.1 Kontext
+make download-models-flux-depth   # FLUX.1 Depth
+make download-models-flux-canny   # FLUX.1 Canny
+make download-models-upscale      # 4x UltraSharp (~67MB)
+make download-models-wan-video    # Wan 2.2 TI2V 5B + umt5 + vae (~18GB)
+
+# Сервисы
+make build                        # Собрать Docker-образы
+make up                           # Запустить сервисы
+make down                         # Остановить
+make logs                         # Логи
+make health                       # Проверка здоровья
+make test                         # Запуск тестов
+
+# GPU control
+make gaming                       # Пауза GPU (gaming mode)
+make resume                       # Возобновить GPU
+make queue                        # Статус очереди задач
 ```
