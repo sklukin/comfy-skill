@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu124
 
 # Clone ComfyUI at a pinned version for reproducibility
-ARG COMFYUI_VERSION=v0.3.34
+ARG COMFYUI_VERSION=v0.18.5
 RUN git clone --depth 1 --branch ${COMFYUI_VERSION} \
     https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 
@@ -42,4 +42,5 @@ CMD ["python", "main.py", \
      "--listen", "0.0.0.0", \
      "--port", "8188", \
      "--preview-method", "none", \
-     "--disable-auto-launch"]
+     "--disable-auto-launch", \
+     "--highvram"]

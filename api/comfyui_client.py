@@ -227,16 +227,9 @@ class ComfyUIClient:
                 if denoise is not None:
                     inputs["denoise"] = denoise
 
-            if cls == "WanImageToVideo":
+            if cls in ("WanImageToVideo", "Wan22ImageToVideoLatent"):
                 inputs["width"] = width
                 inputs["height"] = height
-
-            if cls == "KSamplerAdvanced":
-                inputs["noise_seed"] = seed
-                if steps is not None:
-                    inputs["steps"] = steps
-                if guidance is not None:
-                    inputs["cfg"] = guidance
 
             if cls == "LoadImage" and inputs.get("image") == "MASK_IMAGE_PLACEHOLDER" and mask_image:
                 inputs["image"] = mask_image
@@ -272,11 +265,12 @@ class ComfyUIClient:
 
         client_id = uuid.uuid4().hex
         prompt_id = await self.submit_prompt(workflow, client_id)
-        history = await self.wait_for_completion(prompt_id, client_id)
+        timeout = 900.0 if model == "wan-video" else 300.0
+        history = await self.wait_for_completion(prompt_id, client_id, timeout=timeout)
 
         # Extract output image from history
         outputs = history.get("outputs", {})
-        for node_id, node_output in outputs.items():
+        for node_output in outputs.values():
             images = node_output.get("images", [])
             if images:
                 img_info = images[0]

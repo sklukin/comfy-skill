@@ -185,19 +185,12 @@ download-models-pulid:
 
 download-models-wan-video:
 	@mkdir -p $(MODEL_DIR)/diffusion_models $(MODEL_DIR)/text_encoders $(MODEL_DIR)/vae
-	@if [ -f "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" ]; then \
-		echo "skip wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors (exists)"; \
+	@if [ -f "$(MODEL_DIR)/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors" ]; then \
+		echo "skip wan2.2_ti2v_5B_fp16.safetensors (exists)"; \
 	else \
-		echo "downloading wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors (~14.3GB)..."; \
-		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" \
-			"$(HF_WAN_VIDEO)/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors" || exit 1; \
-	fi
-	@if [ -f "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors" ]; then \
-		echo "skip wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors (exists)"; \
-	else \
-		echo "downloading wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors (~14.3GB)..."; \
-		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors" \
-			"$(HF_WAN_VIDEO)/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors" || exit 1; \
+		echo "downloading wan2.2_ti2v_5B_fp16.safetensors (~10GB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors" \
+			"$(HF_WAN_VIDEO)/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors" || exit 1; \
 	fi
 	@if [ -f "$(MODEL_DIR)/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" ]; then \
 		echo "skip umt5_xxl_fp8_e4m3fn_scaled.safetensors (exists)"; \
@@ -206,14 +199,14 @@ download-models-wan-video:
 		$(HF_DL) -O "$(MODEL_DIR)/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
 			"$(HF_WAN_VIDEO)/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" || exit 1; \
 	fi
-	@if [ -f "$(MODEL_DIR)/vae/wan_2.1_vae.safetensors" ]; then \
-		echo "skip wan_2.1_vae.safetensors (exists)"; \
+	@if [ -f "$(MODEL_DIR)/vae/wan2.2_vae.safetensors" ]; then \
+		echo "skip wan2.2_vae.safetensors (exists)"; \
 	else \
-		echo "downloading wan_2.1_vae.safetensors (~254MB)..."; \
-		$(HF_DL) -O "$(MODEL_DIR)/vae/wan_2.1_vae.safetensors" \
-			"$(HF_WAN_VIDEO)/vae/wan_2.1_vae.safetensors" || exit 1; \
+		echo "downloading wan2.2_vae.safetensors (~1.4GB)..."; \
+		$(HF_DL) -O "$(MODEL_DIR)/vae/wan2.2_vae.safetensors" \
+			"$(HF_WAN_VIDEO)/vae/wan2.2_vae.safetensors" || exit 1; \
 	fi
-	@echo "Wan 2.2 I2V models downloaded to $(MODEL_DIR)"
+	@echo "Wan 2.2 TI2V models downloaded to $(MODEL_DIR)"
 
 # === Docker ===
 

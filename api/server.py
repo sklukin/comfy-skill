@@ -218,7 +218,7 @@ async def submit_job(req: JobRequest):
         raise HTTPException(400, "upscale requires input_image (upload image first via /upload)")
     if req.model == "wan-video" and not req.input_image:
         raise HTTPException(400, "wan-video requires input_image (upload image first via /upload)")
-    if req.input_image and req.denoise is None:
+    if req.input_image and req.denoise is None and req.model not in ("upscale", "wan-video"):
         req.denoise = 0.65
 
     request_params = {
