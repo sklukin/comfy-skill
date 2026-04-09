@@ -279,13 +279,28 @@ To extend an image beyond its borders:
 
 ### Recommended bundled wrapper
 
+The wrapper accepts either an existing mask file or one or more rectangles
+to build the mask inline (no PIL or other image tools required):
+
 ```bash
+# (a) existing mask file
 python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_inpaint_job.py \
   --input /path/to/source.png \
   --mask /path/to/mask.png \
   --prompt "a golden retriever sitting on the grass" \
   --output /tmp/inpainted.png
+
+# (b) inline rectangle mask (auto-detects size from --input)
+python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_inpaint_job.py \
+  --input /path/to/source.png \
+  --mask-rect 128,256,400,300 \
+  --prompt "a golden retriever sitting on the grass" \
+  --output /tmp/inpainted.png
 ```
+
+`--mask-rect x,y,w,h` is repeatable to combine several rectangles. Use
+`--mask-size W,H` to override the auto-detected size and `--mask-invert`
+to flip foreground/background.
 
 ## Video Generation (Wan 2.2 Image-to-Video)
 
@@ -440,12 +455,12 @@ python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generat
   --output /tmp/edited.png
 ```
 
-Inpainting:
+Inpainting (use `--mask-rect x,y,w,h` to build the mask inline, or `--mask /path/to/mask.png` for a file):
 
 ```bash
 python3 /home/openclaw/.openclaw/workspace/skills/generate_image/scripts/generate_image_inpaint_job.py \
   --input /path/to/source.png \
-  --mask /path/to/mask.png \
+  --mask-rect 128,256,400,300 \
   --prompt "a golden retriever sitting on the grass" \
   --output /tmp/inpainted.png
 ```
