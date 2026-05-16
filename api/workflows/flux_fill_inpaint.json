@@ -1,9 +1,8 @@
 {
   "1": {
-    "class_type": "UNETLoader",
+    "class_type": "UnetLoaderGGUF",
     "inputs": {
-      "unet_name": "flux1-fill-dev-fp8.safetensors",
-      "weight_dtype": "fp8_e4m3fn"
+      "unet_name": "flux1-fill-dev-Q8_0.gguf"
     }
   },
   "2": {
