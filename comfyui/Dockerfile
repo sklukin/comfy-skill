@@ -44,7 +44,6 @@ RUN git clone --depth 1 --branch ${COMFYUI_MANAGER_VERSION} \
 RUN git clone --depth 1 https://github.com/city96/ComfyUI-GGUF.git \
         /app/ComfyUI/custom_nodes/ComfyUI-GGUF && \
     pip install --no-cache-dir gguf
->>>>>>> Stashed changes
 
 # Model path configuration (maps volume-mounted dirs)
 COPY extra_model_paths.yaml /app/ComfyUI/
