@@ -17,7 +17,7 @@ WORKDIR /app
 
 # PyTorch (large layer — cached separately)
 RUN pip install --no-cache-dir \
-    torch==2.6.0 torchvision==0.21.0 \
+    torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
     --index-url https://download.pytorch.org/whl/cu124
 
 # Clone ComfyUI at a pinned version for reproducibility
@@ -27,32 +27,43 @@ RUN git clone --depth 1 --branch ${COMFYUI_VERSION} \
 
 WORKDIR /app/ComfyUI
 
-# ComfyUI dependencies (torchaudio removed — not needed for image generation,
-# and its native lib requires CUDA devel headers absent in runtime image)
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir requests && \
-    pip uninstall -y torchaudio 2>/dev/null || true
+# Modern build tooling — required for ComfyUI-Manager 4.x pyproject metadata
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# ComfyUI-Manager — pinned to a release compatible with ComfyUI v0.21.x
+# ComfyUI dependencies
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir requests
+
+# ComfyUI-Manager — v4.x installs via pip (no longer git-cloned into custom_nodes)
 ARG COMFYUI_MANAGER_VERSION=4.2.1
-RUN git clone --depth 1 --branch ${COMFYUI_MANAGER_VERSION} \
-        https://github.com/ltdrdata/ComfyUI-Manager.git \
-        /app/ComfyUI/custom_nodes/ComfyUI-Manager && \
-    pip install --no-cache-dir -r /app/ComfyUI/custom_nodes/ComfyUI-Manager/requirements.txt
-    
+RUN pip install --no-cache-dir "comfyui-manager==${COMFYUI_MANAGER_VERSION}"
+
 # ComfyUI-GGUF: GGUF quantized model support (editing models use Q8_0 GGUF)
 RUN git clone --depth 1 https://github.com/city96/ComfyUI-GGUF.git \
         /app/ComfyUI/custom_nodes/ComfyUI-GGUF && \
     pip install --no-cache-dir gguf
 
+# Stash the baseline custom_nodes/user contents under /opt/baseline so the
+# entrypoint can re-seed them into bind-mounted (possibly empty) volumes on
+# first run. Files installed by the user via Manager survive container
+# rebuilds because /app/ComfyUI/custom_nodes and /app/ComfyUI/user are
+# expected to be mounted from the host.
+RUN mkdir -p /opt/baseline/custom_nodes /opt/baseline/user && \
+    cp -a /app/ComfyUI/custom_nodes/. /opt/baseline/custom_nodes/ && \
+    if [ -d /app/ComfyUI/user ]; then cp -a /app/ComfyUI/user/. /opt/baseline/user/; fi
+
 # Model path configuration (maps volume-mounted dirs)
 COPY extra_model_paths.yaml /app/ComfyUI/
 
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 8188
 
-CMD ["python", "main.py", \
-     "--listen", "0.0.0.0", \
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["--listen", "0.0.0.0", \
      "--port", "8188", \
      "--preview-method", "none", \
      "--disable-auto-launch", \
-     "--highvram"]
+     "--highvram", \
+     "--enable-manager"]

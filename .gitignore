@@ -4,6 +4,11 @@ models/
 # Generated images
 output/
 
+# Persistent ComfyUI state (custom nodes installed via Manager, user settings,
+# workflows, logs). Seeded on first start from baseline shipped in the image.
+comfyui/custom_nodes/
+comfyui/user/
+
 # Environment
 .env
 
