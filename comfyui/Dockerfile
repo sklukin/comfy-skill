@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     pip uninstall -y torchaudio 2>/dev/null || true
 
 # ComfyUI-Manager — pinned to a release compatible with ComfyUI v0.18.x
-ARG COMFYUI_MANAGER_VERSION=3.40
+ARG COMFYUI_MANAGER_VERSION=4.2.1
 RUN git clone --depth 1 --branch ${COMFYUI_MANAGER_VERSION} \
         https://github.com/ltdrdata/ComfyUI-Manager.git \
         /app/ComfyUI/custom_nodes/ComfyUI-Manager && \
